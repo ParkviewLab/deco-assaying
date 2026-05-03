@@ -149,7 +149,12 @@ def walk_full(
     return result
 
 
-def annotate_with_unfetched_blobs(result: WalkResult, root: Path) -> WalkResult:
+def annotate_with_unfetched_blobs(
+    result: WalkResult,
+    root: Path,
+    *,
+    size_overrides: dict[str, int] | None = None,
+) -> WalkResult:
     """If `root` is a git working tree (regular or partial clone), add an
     entry to `result.skipped` for every path in HEAD that didn't make it
     onto disk. In a `--filter=blob:limit=N` clone these are the blobs
@@ -160,6 +165,12 @@ def annotate_with_unfetched_blobs(result: WalkResult, root: Path) -> WalkResult:
     Cheap: `git ls-tree -r HEAD` (without `--long`) doesn't read blob
     contents, so the partial-clone protocol isn't triggered. ~10ms for
     repos in the hundreds of files.
+
+    If `size_overrides` is provided (e.g. from the GitHub Trees API
+    pre-flight in `parkview_codeparse.github`), unfetched entries get
+    real byte sizes instead of `-1`. The overrides only apply to
+    entries we add here — already-fetched files keep the size we
+    measured from disk.
     """
     git_dir = root / ".git"
     if not git_dir.is_dir():
@@ -169,8 +180,11 @@ def annotate_with_unfetched_blobs(result: WalkResult, root: Path) -> WalkResult:
     for rel in _list_head_paths(root):
         if rel in seen:
             continue
+        size = -1
+        if size_overrides is not None and rel in size_overrides:
+            size = size_overrides[rel]
         # Path lives in HEAD but not on disk → unfetched (size > filter cap).
-        result.skipped.append(TreeEntry(path=rel, size=-1, analyzed=False, skip_reason="oversize"))
+        result.skipped.append(TreeEntry(path=rel, size=size, analyzed=False, skip_reason="oversize"))
     return result
 
 

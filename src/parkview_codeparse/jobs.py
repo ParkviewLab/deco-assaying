@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -41,7 +42,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from parkview_codeparse import analyze, manifest, source, walker
+from parkview_codeparse import analyze, github, manifest, source, walker
 from parkview_codeparse.config import JOB_HISTORY_MAX
 
 log = logging.getLogger(__name__)
@@ -189,6 +190,35 @@ def stats() -> dict[str, Any]:
 # Internals
 
 
+def _maybe_fetch_github_sizes(
+    src_arg: str,
+    git_ref: str,
+    options: dict[str, Any],
+    log_fh: Any,
+) -> dict[str, int] | None:
+    """Best-effort GitHub Trees API pre-flight. Returns None on any failure."""
+    if not options.get("github_api", True):
+        return None
+    parsed = github.parse_github_url(src_arg)
+    if parsed is None:
+        return None
+    owner, repo_name = parsed
+    token = os.environ.get("GITHUB_TOKEN") or None
+    sizes = github.fetch_blob_sizes(owner, repo_name, git_ref=git_ref, token=token)
+    if sizes is None:
+        _emit(log_fh, {"event": "github_trees_api_unavailable"})
+        return None
+    _emit(
+        log_fh,
+        {
+            "event": "github_trees_api_ok",
+            "n_paths": len(sizes),
+            "authenticated": bool(token),
+        },
+    )
+    return sizes
+
+
 def _options_from_args(arguments: dict[str, Any]) -> dict[str, Any]:
     max_bytes = int(arguments.get("max_file_bytes", 2 * 1024 * 1024))
     return {
@@ -199,6 +229,7 @@ def _options_from_args(arguments: dict[str, Any]) -> dict[str, Any]:
         "include_chunks": bool(arguments.get("include_chunks", True)),
         "chunk_max_tokens": int(arguments.get("chunk_max_tokens", 800)),
         "eager_clone": bool(arguments.get("eager_clone", False)),
+        "github_api": bool(arguments.get("github_api", True)),
     }
 
 
@@ -272,6 +303,14 @@ def _run_job(job_id: str) -> None:
 
         with open(log_path, "a", encoding="utf-8") as log_fh:
             _set_status(job_id, "running")
+
+            # Optional pre-flight: ask GitHub's Trees API for path+size
+            # of every blob in HEAD (one HTTP call, no blobs fetched).
+            # Used to fill in real sizes for unfetched files in tree.json.
+            # Silent fallback on rate-limit / network error / private
+            # repo without token / >100k entries.
+            size_overrides = _maybe_fetch_github_sizes(src_arg, git_ref, options, log_fh)
+
             resolved = source.resolve_source(
                 source=src_arg,
                 output_dir=output_dir,
@@ -291,8 +330,13 @@ def _run_job(job_id: str) -> None:
             # never made it to disk. Pull them out of HEAD via git
             # ls-tree so they still appear in tree.json — cobgrind gets
             # the full directory map even when we deliberately skipped
-            # the bytes.
-            walker.annotate_with_unfetched_blobs(walk_result, resolved.root)
+            # the bytes. The Trees API pre-flight (above) gives us the
+            # real sizes for those unfetched entries.
+            walker.annotate_with_unfetched_blobs(
+                walk_result,
+                resolved.root,
+                size_overrides=size_overrides,
+            )
 
             with _lock:
                 _jobs[job_id]["files_total"] = len(walk_result.included)

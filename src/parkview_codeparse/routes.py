@@ -142,6 +142,18 @@ async def list_tools() -> list[types.Tool]:
                             "every binary on big ones."
                         ),
                     },
+                    "github_api": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Optional pre-flight: hit the GitHub Trees API "
+                            "for accurate blob sizes (no blob fetches). Used "
+                            "to fill in real sizes for files we don't fetch. "
+                            "Silent fallback on rate-limit / failure. Set "
+                            "GITHUB_TOKEN env to authenticate (60/hr "
+                            "unauthenticated, 5000/hr with token)."
+                        ),
+                    },
                     "include_chunks": {"type": "boolean", "default": True},
                     "chunk_max_tokens": {"type": "integer", "default": 800},
                 },
