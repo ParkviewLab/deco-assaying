@@ -10,12 +10,13 @@ def test_unknown_extension_returns_no_parser_envelope():
     assert r["symbols"] == []
 
 
-def test_typescript_uses_fallback_analyzer():
-    src = "export function add(a: number, b: number) { return a + b; }\n"
-    r = analyze.analyze_inline(content=src, filename="util.ts")
-    assert r["file"]["language"] == "typescript"
-    # Parse succeeds (tree-sitter has typescript), but the fallback analyzer
-    # leaves symbols empty until a TS-specific analyzer is added.
+def test_unsupported_language_uses_fallback_analyzer():
+    # YAML has tree-sitter coverage but no full-support analyzer (and never
+    # will — it isn't a programming language), so we get the fallback
+    # envelope: parse succeeds, chunks are produced, symbols stay empty.
+    src = "name: example\nversion: 1\nlist:\n  - a\n  - b\n"
+    r = analyze.analyze_inline(content=src, filename="config.yaml")
+    assert r["file"]["language"] == "yaml"
     assert r["parse"]["ok"] is True
     assert r["symbols"] == []
     assert r["chunks"]  # chunking is language-agnostic

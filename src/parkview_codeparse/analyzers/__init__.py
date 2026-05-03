@@ -14,12 +14,38 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from parkview_codeparse.analyzers import _fallback, python
+from parkview_codeparse.analyzers import (
+    _fallback,
+    bash,
+    c,
+    cpp,
+    csharp,
+    go,
+    java,
+    javascript,
+    php,
+    python,
+    ruby,
+    rust,
+    typescript,
+)
 
 Analyzer = Callable[[bytes, Any], dict[str, Any]]
 
 _REGISTRY: dict[str, Analyzer] = {
     "python": python.analyze,
+    "typescript": typescript.analyze,
+    "tsx": typescript.analyze,
+    "javascript": javascript.analyze,
+    "go": go.analyze,
+    "rust": rust.analyze,
+    "java": java.analyze,
+    "ruby": ruby.analyze,
+    "c": c.analyze,
+    "cpp": cpp.analyze,
+    "csharp": csharp.analyze,
+    "php": php.analyze,
+    "bash": bash.analyze,
 }
 
 
