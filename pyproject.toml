@@ -35,6 +35,9 @@ packages = ["src/parkview_codeparse"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "network: tests that require outbound network access (e.g. git clone of a public GitHub repo)",
+]
 
 [tool.ruff]
 line-length = 110
