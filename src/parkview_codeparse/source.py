@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 GITHUB_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+?(?:\.git)?$")
@@ -49,6 +50,25 @@ _FORBIDDEN_OUTPUT_DIRS: frozenset[Path] = frozenset(
 
 class SourceError(ValueError):
     """Raised when source/output_dir validation fails."""
+
+
+@dataclass(frozen=True)
+class ResolvedSource:
+    """Describes the source we're going to walk.
+
+    `is_lazy=True` means we did a `--filter=blob:none --no-checkout` clone:
+    the tree is in `.git/` but the working tree is empty. The walker
+    enumerates files via `git ls-tree`, and `jobs` streams blob contents
+    via `git cat-file --batch` so only the files we'll actually analyze
+    get fetched. `git_dir` points at the `.git` directory of the clone.
+
+    `is_lazy=False` means we have a normal directory we can `os.walk`
+    (either a full git clone or a local source).
+    """
+
+    root: Path
+    is_lazy: bool = False
+    git_dir: Path | None = None
 
 
 def is_github_url(source: str) -> bool:
@@ -115,11 +135,22 @@ def resolve_source(
     source: str,
     output_dir: Path,
     git_ref: str = "",
-) -> Path:
+    eager_clone: bool = False,
+) -> ResolvedSource:
     """Materialize the source into a local directory we can walk.
 
-    For GitHub URLs we shallow-clone into `output_dir/.source/`. For local
-    paths we validate and return the path as-is.
+    For GitHub URLs (default `eager_clone=False`) we do a partial,
+    no-checkout clone — the tree lives in `.git/` but no blobs are
+    fetched and no working-tree files exist. The caller (jobs) then walks
+    via `git ls-tree` and pulls blobs lazily, only for files it will
+    actually analyze. This avoids materializing a multi-GB monorepo just
+    to extract symbols from its source files.
+
+    With `eager_clone=True` we do the legacy `--depth=1` full clone
+    instead, which checks out every file. Useful for tests and for
+    consumers that want a complete working tree on disk.
+
+    For local paths we validate and return the path as-is.
     """
     if is_github_url(source):
         ref = validate_git_ref(git_ref)
@@ -127,10 +158,27 @@ def resolve_source(
         if clone_dir.exists():
             _safe_clean(clone_dir)
         clone_dir.mkdir(parents=True, exist_ok=True)
-        cmd = ["git", "clone", "--depth=1"]
-        if ref:
-            cmd += ["--branch", ref]
-        cmd += ["--", source, str(clone_dir)]
+
+        if eager_clone:
+            cmd = ["git", "clone", "--depth=1"]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += ["--", source, str(clone_dir)]
+        else:
+            # Partial clone: download the tree (and commits) but no blobs.
+            # `--no-checkout` keeps the working directory empty until a
+            # downstream caller chooses what to fetch.
+            cmd = [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "--depth=1",
+                "--no-checkout",
+            ]
+            if ref:
+                cmd += ["--branch", ref]
+            cmd += ["--", source, str(clone_dir)]
+
         result = subprocess.run(
             cmd,
             shell=False,
@@ -141,11 +189,17 @@ def resolve_source(
         )
         if result.returncode != 0:
             raise SourceError(f"git clone failed: {result.stderr.strip() or result.stdout.strip()}")
-        return clone_dir
+
+        return ResolvedSource(
+            root=clone_dir,
+            is_lazy=not eager_clone,
+            git_dir=clone_dir / ".git" if not eager_clone else None,
+        )
+
     # Anything that's not a recognized GitHub URL is treated as a local path.
     if "://" in source or source.startswith(("git@", "ssh://", "file://")):
         raise SourceError(f"unsupported source URL scheme: {source!r}")
-    return validate_local_source(source)
+    return ResolvedSource(root=validate_local_source(source), is_lazy=False)
 
 
 def _safe_clean(path: Path) -> None:

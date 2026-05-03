@@ -410,14 +410,23 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path)
         pytest.skip(f"network/git unavailable: {snap['error']}")
     assert snap["state"] == "done", f"job snap: {snap}"
 
-    # The clone landed under output_dir/.source/ as the plan specifies.
+    # The partial clone landed under output_dir/.source/. In lazy mode
+    # the working tree is empty (only .git/ exists) — we never check out
+    # any files. The full path inventory lives in tree.json.
     assert (out / ".source").is_dir()
-    assert (out / ".source" / "pyproject.toml").exists()
+    assert (out / ".source" / ".git").is_dir()
 
     # Manifest reflects what we know about this repo.
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["file_count"] > 10
     assert "python" in manifest["languages"]
+
+    # tree.json lists every path the walker observed (analyzed + skipped),
+    # giving cobgrind a full picture of repo organization.
+    tree = json.loads((out / "tree.json").read_text())
+    paths = {e["path"] for e in tree["entries"]}
+    assert "pyproject.toml" in paths
+    assert "README.md" in paths
 
     # symbols.json picks up our own code.
     symbols = json.loads((out / "symbols.json").read_text())

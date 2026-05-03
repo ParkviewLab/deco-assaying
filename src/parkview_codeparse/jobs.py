@@ -30,12 +30,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 import threading
 import time
 import traceback
 import uuid
 from collections import OrderedDict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
 from pathlib import Path
 from typing import Any
 
@@ -195,6 +197,7 @@ def _options_from_args(arguments: dict[str, Any]) -> dict[str, Any]:
         "max_file_bytes": int(arguments.get("max_file_bytes", 2 * 1024 * 1024)),
         "include_chunks": bool(arguments.get("include_chunks", True)),
         "chunk_max_tokens": int(arguments.get("chunk_max_tokens", 800)),
+        "eager_clone": bool(arguments.get("eager_clone", False)),
     }
 
 
@@ -268,33 +271,66 @@ def _run_job(job_id: str) -> None:
 
         with open(log_path, "a", encoding="utf-8") as log_fh:
             _set_status(job_id, "running")
-            root = source.resolve_source(
+            resolved = source.resolve_source(
                 source=src_arg,
                 output_dir=output_dir,
                 git_ref=git_ref,
+                eager_clone=options["eager_clone"],
             )
-            _emit(log_fh, {"event": "source_resolved", "root": str(root)})
+            _emit(
+                log_fh,
+                {
+                    "event": "source_resolved",
+                    "root": str(resolved.root),
+                    "lazy": resolved.is_lazy,
+                },
+            )
 
-            files = list(
-                walker.walk(
-                    root,
+            if resolved.is_lazy:
+                assert resolved.git_dir is not None
+                walk_result = walker.walk_git_tree(
+                    resolved.git_dir,
                     respect_gitignore=options["respect_gitignore"],
                     extra_ignore_globs=options["extra_ignore_globs"],
                     max_file_bytes=options["max_file_bytes"],
                 )
-            )
-            with _lock:
-                _jobs[job_id]["files_total"] = len(files)
-            _emit(log_fh, {"event": "walk_done", "file_count": len(files)})
+            else:
+                walk_result = walker.walk_full(
+                    resolved.root,
+                    respect_gitignore=options["respect_gitignore"],
+                    extra_ignore_globs=options["extra_ignore_globs"],
+                    max_file_bytes=options["max_file_bytes"],
+                )
 
-            file_summaries = _process_files(
-                job_id=job_id,
-                root=root,
-                files=files,
-                files_dir=files_dir,
-                log_fh=log_fh,
-                options=options,
+            with _lock:
+                _jobs[job_id]["files_total"] = len(walk_result.included)
+            _emit(
+                log_fh,
+                {
+                    "event": "walk_done",
+                    "included": len(walk_result.included),
+                    "skipped": len(walk_result.skipped),
+                },
             )
+
+            if resolved.is_lazy:
+                file_summaries = _process_files_lazy(
+                    job_id=job_id,
+                    clone_dir=resolved.root,
+                    entries=walk_result.included,
+                    files_dir=files_dir,
+                    log_fh=log_fh,
+                    options=options,
+                )
+            else:
+                file_summaries = _process_files(
+                    job_id=job_id,
+                    root=resolved.root,
+                    entries=walk_result.included,
+                    files_dir=files_dir,
+                    log_fh=log_fh,
+                    options=options,
+                )
 
             elapsed = time.time() - _jobs[job_id]["started_at"]
 
@@ -310,6 +346,7 @@ def _run_job(job_id: str) -> None:
                 output_dir=output_dir,
                 job=job_snapshot,
                 file_summaries=file_summaries,
+                walk_result=walk_result,
                 elapsed_seconds=elapsed,
             )
             with _lock:
@@ -330,79 +367,227 @@ def _process_files(
     *,
     job_id: str,
     root: Path,
-    files: list[tuple[str, Path]],
+    entries: list[walker.TreeEntry],
     files_dir: Path,
     log_fh: Any,
     options: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    """Local / eager-clone path: workers read files from disk."""
     summaries: list[dict[str, Any]] = []
-    if not files:
+    if not entries:
         return summaries
 
     with ProcessPoolExecutor() as pool:
-        futures = {}
-        for rel, full in files:
+        futures: dict[Any, str] = {}
+        for entry in entries:
             if _is_cancelled(job_id):
                 break
             fut = pool.submit(
-                _worker,
-                rel,
-                str(full),
+                _worker_disk,
+                entry.path,
+                str(root / entry.path),
                 options["include_chunks"],
                 options["chunk_max_tokens"],
             )
-            futures[fut] = rel
+            futures[fut] = entry.path
 
         for fut in as_completed(futures):
             rel = futures[fut]
-            try:
-                rel_path, result = fut.result()
-            except Exception as e:
-                _emit(log_fh, {"event": "file_failed", "path": rel, "error": str(e)})
-                with _lock:
-                    j = _jobs[job_id]
-                    j["errors_count"] += 1
-                    j["files_done"] += 1
-                continue
-            artifact_path = files_dir / (rel_path + ".json")
-            artifact_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_artifact(artifact_path, result)
-            summaries.append(_summarize_for_manifest(rel_path, result))
-
-            global _files_parsed_total, _parse_error_total
-            with _lock:
-                j = _jobs[job_id]
-                j["files_done"] += 1
-                if not result["parse"]["ok"]:
-                    j["errors_count"] += 1
-                _files_parsed_total += 1
-                if not result["parse"]["ok"]:
-                    _parse_error_total += 1
-                lang = result["file"]["language"] or "unknown"
-                _files_by_language[lang] = _files_by_language.get(lang, 0) + 1
-            _emit(
-                log_fh,
-                {
-                    "event": "file_done",
-                    "path": rel_path,
-                    "language": result["file"]["language"],
-                    "n_symbols": len(result["symbols"]),
-                    "parse_ok": result["parse"]["ok"],
-                    "bytes": result["file"]["bytes"],
-                },
-            )
+            _drain_one(fut, rel, files_dir, log_fh, summaries, job_id)
     return summaries
 
 
-def _worker(
+def _process_files_lazy(
+    *,
+    job_id: str,
+    clone_dir: Path,
+    entries: list[walker.TreeEntry],
+    files_dir: Path,
+    log_fh: Any,
+    options: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Partial-clone path: stream blobs through a single `git cat-file --batch`,
+    fan analysis out to a worker pool with bounded in-flight queue.
+
+    Peak memory is ~`max_in_flight * file_size`; we never materialize a
+    file to disk. After analysis the bytes are released.
+    """
+    summaries: list[dict[str, Any]] = []
+    if not entries:
+        return summaries
+
+    cat_proc = subprocess.Popen(
+        ["git", "-C", str(clone_dir), "cat-file", "--batch"],
+        shell=False,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=0,
+    )
+    assert cat_proc.stdin is not None and cat_proc.stdout is not None
+
+    max_in_flight = max(2, (os.cpu_count() or 2) * 2)
+
+    try:
+        with ProcessPoolExecutor() as pool:
+            entry_iter = iter(entries)
+            in_flight: dict[Any, str] = {}
+
+            def submit_next() -> bool:
+                if _is_cancelled(job_id):
+                    return False
+                try:
+                    entry = next(entry_iter)
+                except StopIteration:
+                    return False
+                content = _fetch_blob(cat_proc, entry.blob_sha)
+                if content is None:
+                    _emit(
+                        log_fh,
+                        {
+                            "event": "file_failed",
+                            "path": entry.path,
+                            "error": "blob fetch failed",
+                        },
+                    )
+                    with _lock:
+                        _jobs[job_id]["errors_count"] += 1
+                        _jobs[job_id]["files_done"] += 1
+                    # Try the next file — don't stall the pipeline.
+                    return submit_next()
+                fut = pool.submit(
+                    _worker_blob,
+                    entry.path,
+                    content,
+                    options["include_chunks"],
+                    options["chunk_max_tokens"],
+                )
+                in_flight[fut] = entry.path
+                return True
+
+            for _ in range(max_in_flight):
+                submit_next()
+
+            while in_flight:
+                done_set, _pending = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+                for fut in done_set:
+                    rel = in_flight.pop(fut)
+                    _drain_one(fut, rel, files_dir, log_fh, summaries, job_id)
+                    submit_next()
+    finally:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            cat_proc.stdin.close()
+        try:
+            cat_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            cat_proc.kill()
+
+    return summaries
+
+
+def _drain_one(
+    fut: Any,
+    rel: str,
+    files_dir: Path,
+    log_fh: Any,
+    summaries: list[dict[str, Any]],
+    job_id: str,
+) -> None:
+    try:
+        rel_path, result = fut.result()
+    except Exception as e:
+        _emit(log_fh, {"event": "file_failed", "path": rel, "error": str(e)})
+        with _lock:
+            j = _jobs[job_id]
+            j["errors_count"] += 1
+            j["files_done"] += 1
+        return
+
+    artifact_path = files_dir / (rel_path + ".json")
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_artifact(artifact_path, result)
+    summaries.append(_summarize_for_manifest(rel_path, result))
+
+    global _files_parsed_total, _parse_error_total
+    with _lock:
+        j = _jobs[job_id]
+        j["files_done"] += 1
+        if not result["parse"]["ok"]:
+            j["errors_count"] += 1
+        _files_parsed_total += 1
+        if not result["parse"]["ok"]:
+            _parse_error_total += 1
+        lang = result["file"]["language"] or "unknown"
+        _files_by_language[lang] = _files_by_language.get(lang, 0) + 1
+    _emit(
+        log_fh,
+        {
+            "event": "file_done",
+            "path": rel_path,
+            "language": result["file"]["language"],
+            "n_symbols": len(result["symbols"]),
+            "parse_ok": result["parse"]["ok"],
+            "bytes": result["file"]["bytes"],
+        },
+    )
+
+
+def _fetch_blob(proc: subprocess.Popen, sha: str) -> bytes | None:
+    """Pull one blob through an open `git cat-file --batch` subprocess.
+
+    Protocol: write `<sha>\\n` to stdin; stdout responds either with
+    `<sha> blob <size>\\n<content>\\n` (success) or `<sha> missing\\n`
+    (not found).
+    """
+    if proc.stdin is None or proc.stdout is None:
+        return None
+    proc.stdin.write((sha + "\n").encode())
+    proc.stdin.flush()
+    header = proc.stdout.readline()
+    if not header:
+        return None
+    parts = header.decode("utf-8", errors="replace").split()
+    if len(parts) < 2 or parts[1] != "blob":
+        return None
+    try:
+        size = int(parts[2])
+    except (ValueError, IndexError):
+        return None
+    content = proc.stdout.read(size)
+    proc.stdout.read(1)  # trailing newline
+    return content
+
+
+def _worker_disk(
     rel_path: str,
     abs_path: str,
     include_chunks: bool,
     chunk_max_tokens: int,
 ) -> tuple[str, dict[str, Any]]:
-    """ProcessPoolExecutor worker: read file, analyze, return."""
+    """ProcessPoolExecutor worker (disk path): read + analyze."""
     with open(abs_path, "rb") as f:
         content_bytes = f.read()
+    return _analyze_bytes(rel_path, content_bytes, include_chunks, chunk_max_tokens)
+
+
+def _worker_blob(
+    rel_path: str,
+    content_bytes: bytes,
+    include_chunks: bool,
+    chunk_max_tokens: int,
+) -> tuple[str, dict[str, Any]]:
+    """ProcessPoolExecutor worker (blob path): analyze pre-fetched bytes."""
+    return _analyze_bytes(rel_path, content_bytes, include_chunks, chunk_max_tokens)
+
+
+def _analyze_bytes(
+    rel_path: str,
+    content_bytes: bytes,
+    include_chunks: bool,
+    chunk_max_tokens: int,
+) -> tuple[str, dict[str, Any]]:
     text = content_bytes.decode("utf-8", errors="replace")
     result = analyze.analyze_inline(
         content=text,

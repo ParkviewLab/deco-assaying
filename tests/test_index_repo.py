@@ -91,6 +91,22 @@ def test_index_repo_against_local_fixture(tmp_path: Path):
     assert "file_done" in events
     assert "manifest_written" in events
 
+    # tree.json lists every path the walker saw — analyzed and skipped.
+    tree = json.loads((out / "tree.json").read_text())
+    by_path = {e["path"]: e for e in tree["entries"]}
+    assert by_path["alpha.py"]["analyzed"] is True
+    # `ignored.py` is matched by .gitignore and recorded as skipped.
+    assert "ignored.py" in by_path
+    assert by_path["ignored.py"]["analyzed"] is False
+    assert by_path["ignored.py"]["skip_reason"] == "gitignore"
+    # node_modules entries don't show up — directory-level skip drops them
+    # before we record per-file decisions, so tree.json stays compact.
+    assert not any(p.startswith("node_modules/") for p in by_path)
+    # Manifest exposes the rolled-up skip counts.
+    assert manifest["tree_total"] == len(by_path)
+    assert manifest["skipped_count"] >= 1
+    assert manifest["skipped_by_reason"].get("gitignore", 0) >= 1
+
 
 def test_index_repo_refuses_non_empty_output_without_force(tmp_path: Path):
     src = tmp_path / "src"
