@@ -28,16 +28,16 @@ mid-write is never raced.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import os
 import subprocess
 import threading
 import time
 import traceback
 import uuid
 from collections import OrderedDict
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -190,11 +190,12 @@ def stats() -> dict[str, Any]:
 
 
 def _options_from_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    max_bytes = int(arguments.get("max_file_bytes", 2 * 1024 * 1024))
     return {
         "force": bool(arguments.get("force", False)),
         "respect_gitignore": bool(arguments.get("respect_gitignore", True)),
         "extra_ignore_globs": list(arguments.get("extra_ignore_globs") or []),
-        "max_file_bytes": int(arguments.get("max_file_bytes", 2 * 1024 * 1024)),
+        "max_file_bytes": max_bytes,
         "include_chunks": bool(arguments.get("include_chunks", True)),
         "chunk_max_tokens": int(arguments.get("chunk_max_tokens", 800)),
         "eager_clone": bool(arguments.get("eager_clone", False)),
@@ -275,32 +276,23 @@ def _run_job(job_id: str) -> None:
                 source=src_arg,
                 output_dir=output_dir,
                 git_ref=git_ref,
+                max_blob_bytes=options["max_file_bytes"],
                 eager_clone=options["eager_clone"],
             )
-            _emit(
-                log_fh,
-                {
-                    "event": "source_resolved",
-                    "root": str(resolved.root),
-                    "lazy": resolved.is_lazy,
-                },
-            )
+            _emit(log_fh, {"event": "source_resolved", "root": str(resolved.root)})
 
-            if resolved.is_lazy:
-                assert resolved.git_dir is not None
-                walk_result = walker.walk_git_tree(
-                    resolved.git_dir,
-                    respect_gitignore=options["respect_gitignore"],
-                    extra_ignore_globs=options["extra_ignore_globs"],
-                    max_file_bytes=options["max_file_bytes"],
-                )
-            else:
-                walk_result = walker.walk_full(
-                    resolved.root,
-                    respect_gitignore=options["respect_gitignore"],
-                    extra_ignore_globs=options["extra_ignore_globs"],
-                    max_file_bytes=options["max_file_bytes"],
-                )
+            walk_result = walker.walk_full(
+                resolved.root,
+                respect_gitignore=options["respect_gitignore"],
+                extra_ignore_globs=options["extra_ignore_globs"],
+                max_file_bytes=options["max_file_bytes"],
+            )
+            # If this was a partial clone, blobs over `max_file_bytes`
+            # never made it to disk. Pull them out of HEAD via git
+            # ls-tree so they still appear in tree.json — cobgrind gets
+            # the full directory map even when we deliberately skipped
+            # the bytes.
+            walker.annotate_with_unfetched_blobs(walk_result, resolved.root)
 
             with _lock:
                 _jobs[job_id]["files_total"] = len(walk_result.included)
@@ -313,24 +305,14 @@ def _run_job(job_id: str) -> None:
                 },
             )
 
-            if resolved.is_lazy:
-                file_summaries = _process_files_lazy(
-                    job_id=job_id,
-                    clone_dir=resolved.root,
-                    entries=walk_result.included,
-                    files_dir=files_dir,
-                    log_fh=log_fh,
-                    options=options,
-                )
-            else:
-                file_summaries = _process_files(
-                    job_id=job_id,
-                    root=resolved.root,
-                    entries=walk_result.included,
-                    files_dir=files_dir,
-                    log_fh=log_fh,
-                    options=options,
-                )
+            file_summaries = _process_files(
+                job_id=job_id,
+                root=resolved.root,
+                entries=walk_result.included,
+                files_dir=files_dir,
+                log_fh=log_fh,
+                options=options,
+            )
 
             elapsed = time.time() - _jobs[job_id]["started_at"]
 
@@ -397,6 +379,9 @@ def _process_files(
     return summaries
 
 
+_LAZY_BATCH_SIZE = 32
+
+
 def _process_files_lazy(
     *,
     job_id: str,
@@ -406,85 +391,118 @@ def _process_files_lazy(
     log_fh: Any,
     options: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Partial-clone path: stream blobs through a single `git cat-file --batch`,
-    fan analysis out to a worker pool with bounded in-flight queue.
+    """Partial-clone path: batched `git checkout` + parallel analysis.
 
-    Peak memory is ~`max_in_flight * file_size`; we never materialize a
-    file to disk. After analysis the bytes are released.
+    The naive cat-file approach (one blob at a time) issues one network
+    round-trip per missing blob in partial-clone mode — for a repo with
+    100 wanted source files, that's 100 sequential fetches and dominates
+    wall time. This path instead processes entries in batches of
+    `_LAZY_BATCH_SIZE`:
+
+      1. `git checkout HEAD -- p1 p2 ... pN` materializes the batch's
+         files in one command. git bundles every missing blob in the
+         batch into a single fetch over the partial-clone protocol —
+         one round-trip instead of N.
+      2. The batch's files are analyzed in parallel via
+         `ProcessPoolExecutor` (workers read from disk).
+      3. Once the batch is done, the files are deleted from the working
+         tree before we move on, bounding peak disk to one batch.
+
+    Peak disk on top of `.git/` is therefore ~`_LAZY_BATCH_SIZE` times
+    the average wanted-source-file size — typically well under 1 MB. We
+    never materialize unwanted files (binaries, vendored deps, etc.) at
+    any point; their blobs are never fetched.
     """
     summaries: list[dict[str, Any]] = []
     if not entries:
         return summaries
 
-    cat_proc = subprocess.Popen(
-        ["git", "-C", str(clone_dir), "cat-file", "--batch"],
-        shell=False,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        bufsize=0,
-    )
-    assert cat_proc.stdin is not None and cat_proc.stdout is not None
+    # One pool, one git-checkout subprocess per batch. Spawning a new
+    # ProcessPoolExecutor per batch was costing ~1s on macOS (spawn, not
+    # fork), which dominated wall time on small repos.
+    with ProcessPoolExecutor() as pool:
+        for start in range(0, len(entries), _LAZY_BATCH_SIZE):
+            if _is_cancelled(job_id):
+                break
+            batch = entries[start : start + _LAZY_BATCH_SIZE]
+            _process_lazy_batch(
+                job_id=job_id,
+                clone_dir=clone_dir,
+                batch=batch,
+                files_dir=files_dir,
+                log_fh=log_fh,
+                options=options,
+                summaries=summaries,
+                pool=pool,
+            )
+    return summaries
 
-    max_in_flight = max(2, (os.cpu_count() or 2) * 2)
+
+def _process_lazy_batch(
+    *,
+    job_id: str,
+    clone_dir: Path,
+    batch: list[walker.TreeEntry],
+    files_dir: Path,
+    log_fh: Any,
+    options: dict[str, Any],
+    summaries: list[dict[str, Any]],
+    pool: ProcessPoolExecutor,
+) -> None:
+    """Materialize one batch via `git checkout`, analyze, then clean up."""
+    paths = [entry.path for entry in batch]
+    cmd = ["git", "-C", str(clone_dir), "checkout", "HEAD", "--", *paths]
+    proc = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Log every entry as failed and keep going.
+        err = (proc.stderr or proc.stdout or "git checkout failed").strip()
+        for entry in batch:
+            _emit(log_fh, {"event": "file_failed", "path": entry.path, "error": err})
+            with _lock:
+                _jobs[job_id]["errors_count"] += 1
+                _jobs[job_id]["files_done"] += 1
+        return
 
     try:
-        with ProcessPoolExecutor() as pool:
-            entry_iter = iter(entries)
-            in_flight: dict[Any, str] = {}
+        # Post-checkout size filter. We can't filter on size during
+        # `walk_git_tree` (size requires fetching the blob) so we do it
+        # here, after git has materialized the batch. Files that exceed
+        # max_file_bytes get logged-and-skipped without dispatching to
+        # the worker pool; their entry stays in tree.json with
+        # skip_reason="oversize".
+        max_bytes = options["max_file_bytes"]
+        futures: dict[Any, str] = {}
+        for entry in batch:
+            full = clone_dir / entry.path
+            try:
+                size = full.stat().st_size
+            except OSError:
+                continue
+            entry.size = size  # remember the real size for the manifest tree
+            if size > max_bytes:
+                entry.analyzed = False
+                entry.skip_reason = "oversize"
+                _emit(log_fh, {"event": "file_skipped", "path": entry.path, "reason": "oversize"})
+                with _lock:
+                    _jobs[job_id]["files_done"] += 1
+                continue
+            fut = pool.submit(
+                _worker_disk,
+                entry.path,
+                str(full),
+                options["include_chunks"],
+                options["chunk_max_tokens"],
+            )
+            futures[fut] = entry.path
 
-            def submit_next() -> bool:
-                if _is_cancelled(job_id):
-                    return False
-                try:
-                    entry = next(entry_iter)
-                except StopIteration:
-                    return False
-                content = _fetch_blob(cat_proc, entry.blob_sha)
-                if content is None:
-                    _emit(
-                        log_fh,
-                        {
-                            "event": "file_failed",
-                            "path": entry.path,
-                            "error": "blob fetch failed",
-                        },
-                    )
-                    with _lock:
-                        _jobs[job_id]["errors_count"] += 1
-                        _jobs[job_id]["files_done"] += 1
-                    # Try the next file — don't stall the pipeline.
-                    return submit_next()
-                fut = pool.submit(
-                    _worker_blob,
-                    entry.path,
-                    content,
-                    options["include_chunks"],
-                    options["chunk_max_tokens"],
-                )
-                in_flight[fut] = entry.path
-                return True
-
-            for _ in range(max_in_flight):
-                submit_next()
-
-            while in_flight:
-                done_set, _pending = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
-                for fut in done_set:
-                    rel = in_flight.pop(fut)
-                    _drain_one(fut, rel, files_dir, log_fh, summaries, job_id)
-                    submit_next()
+        for fut in as_completed(futures):
+            rel = futures[fut]
+            _drain_one(fut, rel, files_dir, log_fh, summaries, job_id)
     finally:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            cat_proc.stdin.close()
-        try:
-            cat_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            cat_proc.kill()
-
-    return summaries
+        # Wipe the batch from the working tree so peak disk stays bounded.
+        for entry in batch:
+            with contextlib.suppress(OSError):
+                (clone_dir / entry.path).unlink()
 
 
 def _drain_one(
@@ -534,60 +552,20 @@ def _drain_one(
     )
 
 
-def _fetch_blob(proc: subprocess.Popen, sha: str) -> bytes | None:
-    """Pull one blob through an open `git cat-file --batch` subprocess.
-
-    Protocol: write `<sha>\\n` to stdin; stdout responds either with
-    `<sha> blob <size>\\n<content>\\n` (success) or `<sha> missing\\n`
-    (not found).
-    """
-    if proc.stdin is None or proc.stdout is None:
-        return None
-    proc.stdin.write((sha + "\n").encode())
-    proc.stdin.flush()
-    header = proc.stdout.readline()
-    if not header:
-        return None
-    parts = header.decode("utf-8", errors="replace").split()
-    if len(parts) < 2 or parts[1] != "blob":
-        return None
-    try:
-        size = int(parts[2])
-    except (ValueError, IndexError):
-        return None
-    content = proc.stdout.read(size)
-    proc.stdout.read(1)  # trailing newline
-    return content
-
-
 def _worker_disk(
     rel_path: str,
     abs_path: str,
     include_chunks: bool,
     chunk_max_tokens: int,
 ) -> tuple[str, dict[str, Any]]:
-    """ProcessPoolExecutor worker (disk path): read + analyze."""
+    """ProcessPoolExecutor worker: read + analyze one file from disk.
+
+    Used by both the local/eager path and the lazy path — in lazy mode
+    the orchestrator has just `git checkout`-ed the file into the working
+    tree, so the worker reads exactly the same way as the local case.
+    """
     with open(abs_path, "rb") as f:
         content_bytes = f.read()
-    return _analyze_bytes(rel_path, content_bytes, include_chunks, chunk_max_tokens)
-
-
-def _worker_blob(
-    rel_path: str,
-    content_bytes: bytes,
-    include_chunks: bool,
-    chunk_max_tokens: int,
-) -> tuple[str, dict[str, Any]]:
-    """ProcessPoolExecutor worker (blob path): analyze pre-fetched bytes."""
-    return _analyze_bytes(rel_path, content_bytes, include_chunks, chunk_max_tokens)
-
-
-def _analyze_bytes(
-    rel_path: str,
-    content_bytes: bytes,
-    include_chunks: bool,
-    chunk_max_tokens: int,
-) -> tuple[str, dict[str, Any]]:
     text = content_bytes.decode("utf-8", errors="replace")
     result = analyze.analyze_inline(
         content=text,

@@ -56,19 +56,15 @@ class SourceError(ValueError):
 class ResolvedSource:
     """Describes the source we're going to walk.
 
-    `is_lazy=True` means we did a `--filter=blob:none --no-checkout` clone:
-    the tree is in `.git/` but the working tree is empty. The walker
-    enumerates files via `git ls-tree`, and `jobs` streams blob contents
-    via `git cat-file --batch` so only the files we'll actually analyze
-    get fetched. `git_dir` points at the `.git` directory of the clone.
-
-    `is_lazy=False` means we have a normal directory we can `os.walk`
-    (either a full git clone or a local source).
+    The clone is always materialized as a normal working tree the walker
+    can `os.walk`. For GitHub URLs we use a size-bounded partial clone
+    (`--filter=blob:limit=<max_file_bytes>`) so blobs over the cap stay
+    missing on disk — that's what keeps a multi-GB monorepo from
+    swallowing the local drive — but everything under the cap is
+    materialized in a single git fetch.
     """
 
     root: Path
-    is_lazy: bool = False
-    git_dir: Path | None = None
 
 
 def is_github_url(source: str) -> bool:
@@ -135,20 +131,30 @@ def resolve_source(
     source: str,
     output_dir: Path,
     git_ref: str = "",
+    max_blob_bytes: int = 2 * 1024 * 1024,
     eager_clone: bool = False,
 ) -> ResolvedSource:
     """Materialize the source into a local directory we can walk.
 
-    For GitHub URLs (default `eager_clone=False`) we do a partial,
-    no-checkout clone — the tree lives in `.git/` but no blobs are
-    fetched and no working-tree files exist. The caller (jobs) then walks
-    via `git ls-tree` and pulls blobs lazily, only for files it will
-    actually analyze. This avoids materializing a multi-GB monorepo just
-    to extract symbols from its source files.
+    For GitHub URLs (default `eager_clone=False`) we do a size-bounded
+    partial clone: `git clone --filter=blob:limit=<max_blob_bytes>
+    --depth=1`. Git then fetches every reachable blob whose size is
+    under the cap in a single transfer, and leaves blobs above the cap
+    missing on disk. The working tree is materialized normally for the
+    blobs we got. Net effect: source files come down (typically a few
+    MB total), big binaries / lockfiles / generated data files do not,
+    and we don't pay one network round-trip per file (which is what
+    `--filter=blob:none` + per-file checkout would force).
+
+    `--filter=blob:none` was tried and rejected: in partial-clone mode,
+    both `git checkout HEAD -- <path>` and `git cat-file --batch`
+    trigger a separate network fetch per missing blob, with no
+    bundling, which is ~25x slower than the size-bounded clone for
+    typical source repos.
 
     With `eager_clone=True` we do the legacy `--depth=1` full clone
-    instead, which checks out every file. Useful for tests and for
-    consumers that want a complete working tree on disk.
+    instead (no filter). Useful when callers know the repo is small
+    or want every blob locally for follow-up work.
 
     For local paths we validate and return the path as-is.
     """
@@ -159,25 +165,12 @@ def resolve_source(
             _safe_clean(clone_dir)
         clone_dir.mkdir(parents=True, exist_ok=True)
 
-        if eager_clone:
-            cmd = ["git", "clone", "--depth=1"]
-            if ref:
-                cmd += ["--branch", ref]
-            cmd += ["--", source, str(clone_dir)]
-        else:
-            # Partial clone: download the tree (and commits) but no blobs.
-            # `--no-checkout` keeps the working directory empty until a
-            # downstream caller chooses what to fetch.
-            cmd = [
-                "git",
-                "clone",
-                "--filter=blob:none",
-                "--depth=1",
-                "--no-checkout",
-            ]
-            if ref:
-                cmd += ["--branch", ref]
-            cmd += ["--", source, str(clone_dir)]
+        cmd = ["git", "clone", "--depth=1"]
+        if not eager_clone:
+            cmd.append(f"--filter=blob:limit={max_blob_bytes}")
+        if ref:
+            cmd += ["--branch", ref]
+        cmd += ["--", source, str(clone_dir)]
 
         result = subprocess.run(
             cmd,
@@ -190,16 +183,12 @@ def resolve_source(
         if result.returncode != 0:
             raise SourceError(f"git clone failed: {result.stderr.strip() or result.stdout.strip()}")
 
-        return ResolvedSource(
-            root=clone_dir,
-            is_lazy=not eager_clone,
-            git_dir=clone_dir / ".git" if not eager_clone else None,
-        )
+        return ResolvedSource(root=clone_dir)
 
     # Anything that's not a recognized GitHub URL is treated as a local path.
     if "://" in source or source.startswith(("git@", "ssh://", "file://")):
         raise SourceError(f"unsupported source URL scheme: {source!r}")
-    return ResolvedSource(root=validate_local_source(source), is_lazy=False)
+    return ResolvedSource(root=validate_local_source(source))
 
 
 def _safe_clean(path: Path) -> None:

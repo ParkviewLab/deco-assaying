@@ -64,10 +64,17 @@ def _build_manifest(
     config_files = [s["path"] for s in file_summaries if s.get("is_config")]
     generated_files = [s["path"] for s in file_summaries if s.get("is_generated")]
 
+    # Derive skip counts from the per-entry `analyzed` flag rather than
+    # the WalkResult.skipped list, because the lazy path mutates entries
+    # post-walk (size becomes known after `git checkout` materializes
+    # the batch, so an oversize entry that was originally in `included`
+    # gets flipped to analyzed=False).
+    all_entries = walk_result.all_entries()
     skip_buckets: dict[str, int] = {}
-    for entry in walk_result.skipped:
-        key = entry.skip_reason or "other"
-        skip_buckets[key] = skip_buckets.get(key, 0) + 1
+    for entry in all_entries:
+        if not entry.analyzed:
+            key = entry.skip_reason or "other"
+            skip_buckets[key] = skip_buckets.get(key, 0) + 1
 
     return {
         "job_id": job["job_id"],
@@ -78,8 +85,8 @@ def _build_manifest(
         "elapsed_seconds": elapsed_seconds,
         "file_count": n_files,
         "total_bytes": total_bytes,
-        "tree_total": len(walk_result.included) + len(walk_result.skipped),
-        "skipped_count": len(walk_result.skipped),
+        "tree_total": len(all_entries),
+        "skipped_count": sum(1 for e in all_entries if not e.analyzed),
         "skipped_by_reason": skip_buckets,
         "languages": languages_count,
         "parse_errors_count": n_parse_errors,

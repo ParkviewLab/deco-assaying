@@ -123,7 +123,25 @@ async def list_tools() -> list[types.Tool]:
                         "items": {"type": "string"},
                         "default": [],
                     },
-                    "max_file_bytes": {"type": "integer", "default": 2 * 1024 * 1024},
+                    "max_file_bytes": {
+                        "type": "integer",
+                        "default": 2 * 1024 * 1024,
+                        "description": (
+                            "Per-file size cap. For GitHub URLs this is also "
+                            "passed to git as --filter=blob:limit=, so blobs "
+                            "above this size never get fetched."
+                        ),
+                    },
+                    "eager_clone": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "If true, GitHub URLs use a full --depth=1 clone "
+                            "(every blob fetched) instead of the size-bounded "
+                            "partial clone. Faster on small repos; downloads "
+                            "every binary on big ones."
+                        ),
+                    },
                     "include_chunks": {"type": "boolean", "default": True},
                     "chunk_max_tokens": {"type": "integer", "default": 800},
                 },

@@ -56,74 +56,6 @@ DEFAULT_DIR_SKIPS: frozenset[str] = frozenset(
 
 _SNIFF_BYTES = 8192
 
-# Extension blacklist for binary files. Used in lazy-clone mode where we
-# can't NUL-sniff before deciding whether to fetch the blob; in local
-# mode we still fall back to the more-precise content sniff.
-BINARY_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "ico",
-        "bmp",
-        "tiff",
-        "webp",
-        "avif",
-        "svg",
-        "pdf",
-        "ai",
-        "psd",
-        "sketch",
-        "zip",
-        "tar",
-        "gz",
-        "bz2",
-        "7z",
-        "rar",
-        "xz",
-        "tgz",
-        "tbz",
-        "zst",
-        "exe",
-        "dll",
-        "so",
-        "dylib",
-        "a",
-        "lib",
-        "o",
-        "obj",
-        "class",
-        "jar",
-        "war",
-        "wasm",
-        "pyc",
-        "pyd",
-        "whl",
-        "egg",
-        "woff",
-        "woff2",
-        "ttf",
-        "otf",
-        "eot",
-        "mp3",
-        "mp4",
-        "mov",
-        "avi",
-        "mkv",
-        "flac",
-        "wav",
-        "ogg",
-        "webm",
-        "m4a",
-        "m4v",
-        "iso",
-        "img",
-        "dmg",
-        "lock",  # most lockfiles are large + auto-generated; analyzers don't help
-    }
-)
-
 
 @dataclass
 class TreeEntry:
@@ -138,10 +70,7 @@ class TreeEntry:
     path: str  # forward-slash relative path
     size: int  # bytes
     analyzed: bool
-    skip_reason: str = (
-        ""  # "" if analyzed, otherwise one of: gitignore | binary | oversize | extra_ignore | unknown
-    )
-    blob_sha: str = ""  # only set in lazy-clone mode
+    skip_reason: str = ""  # "" if analyzed, otherwise: gitignore | binary | oversize | extra_ignore
 
 
 @dataclass
@@ -220,41 +149,50 @@ def walk_full(
     return result
 
 
-def walk_git_tree(
-    git_dir: Path,
-    *,
-    respect_gitignore: bool = True,
-    extra_ignore_globs: list[str] | None = None,
-    max_file_bytes: int = 2 * 1024 * 1024,
-) -> WalkResult:
-    """Walk a partial-clone working tree by querying `git ls-tree`.
+def annotate_with_unfetched_blobs(result: WalkResult, root: Path) -> WalkResult:
+    """If `root` is a git working tree (regular or partial clone), add an
+    entry to `result.skipped` for every path in HEAD that didn't make it
+    onto disk. In a `--filter=blob:limit=N` clone these are the blobs
+    that exceeded N bytes — they're real files in the repo we just
+    didn't fetch, and cobgrind wants them in tree.json so the directory
+    map is complete.
 
-    `git_dir` must point at the repo's `.git` directory. We list every
-    file in HEAD with its blob sha and size, then apply the same filters
-    `walk_full` does — except binary detection switches from a NUL-byte
-    sniff (we don't have content yet) to an extension blacklist.
+    Cheap: `git ls-tree -r HEAD` (without `--long`) doesn't read blob
+    contents, so the partial-clone protocol isn't triggered. ~10ms for
+    repos in the hundreds of files.
     """
-    spec_root = _load_gitignore_spec_via_git(git_dir) if respect_gitignore else None
-    extra_spec = pathspec.GitIgnoreSpec.from_lines(extra_ignore_globs) if extra_ignore_globs else None
-    result = WalkResult()
-
-    for rel, sha, size in _ls_tree(git_dir):
-        # Directory-level skip: any path component matching DEFAULT_DIR_SKIPS
-        # is dropped. (We don't have an os.walk-style prune step; we just
-        # check each component.)
-        if any(part in DEFAULT_DIR_SKIPS for part in rel.split("/")[:-1]):
+    git_dir = root / ".git"
+    if not git_dir.is_dir():
+        return result
+    seen: set[str] = {e.path for e in result.included}
+    seen.update(e.path for e in result.skipped)
+    for rel in _list_head_paths(root):
+        if rel in seen:
             continue
-
-        reason = _file_skip_reason_lazy(rel, size, spec_root, extra_spec, max_file_bytes)
-        entry = TreeEntry(
-            path=rel,
-            size=size,
-            analyzed=(reason == ""),
-            skip_reason=reason,
-            blob_sha=sha,
-        )
-        (result.included if entry.analyzed else result.skipped).append(entry)
+        # Path lives in HEAD but not on disk → unfetched (size > filter cap).
+        result.skipped.append(TreeEntry(path=rel, size=-1, analyzed=False, skip_reason="oversize"))
     return result
+
+
+def _list_head_paths(root: Path) -> Iterator[str]:
+    """Yield every blob path in HEAD via `git ls-tree -r HEAD` (no --long)."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-tree", "-r", "HEAD"],
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return
+    for line in proc.stdout.splitlines():
+        # mode SP type SP sha TAB path
+        meta, _, path = line.partition("\t")
+        if not path:
+            continue
+        parts = meta.split()
+        if len(parts) == 3 and parts[1] == "blob":
+            yield path
 
 
 def _load_gitignore_spec(root: Path) -> pathspec.GitIgnoreSpec | None:
@@ -305,75 +243,6 @@ def _file_skip_reason(
     if _looks_binary(full):
         return "binary"
     return ""
-
-
-def _file_skip_reason_lazy(
-    rel: str,
-    size: int,
-    spec_root: pathspec.GitIgnoreSpec | None,
-    extra_spec: pathspec.GitIgnoreSpec | None,
-    max_file_bytes: int,
-) -> str:
-    if spec_root is not None and spec_root.match_file(rel):
-        return "gitignore"
-    if extra_spec is not None and extra_spec.match_file(rel):
-        return "extra_ignore"
-    if size > max_file_bytes:
-        return "oversize"
-    name = rel.rsplit("/", 1)[-1].lower()
-    if "." in name:
-        ext = name.rsplit(".", 1)[1]
-        if ext in BINARY_EXTENSIONS:
-            return "binary"
-    return ""
-
-
-def _ls_tree(git_dir: Path) -> Iterator[tuple[str, str, int]]:
-    """Yield (rel_path, blob_sha, size) for every file in HEAD.
-
-    Uses `git ls-tree -r --long HEAD` which prints lines like:
-
-        100644 blob <sha>      <size>\\t<path>
-    """
-    repo_dir = git_dir.parent
-    proc = subprocess.run(
-        ["git", "-C", str(repo_dir), "ls-tree", "-r", "--long", "HEAD"],
-        shell=False,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return
-    for line in proc.stdout.splitlines():
-        # mode SP type SP sha SP+ size TAB path
-        meta, _, path = line.partition("\t")
-        if not path:
-            continue
-        parts = meta.split()
-        if len(parts) != 4 or parts[1] != "blob":
-            continue
-        sha = parts[2]
-        try:
-            size = int(parts[3])
-        except ValueError:
-            continue
-        yield path, sha, size
-
-
-def _load_gitignore_spec_via_git(git_dir: Path) -> pathspec.GitIgnoreSpec | None:
-    """Fetch the root .gitignore via `git show HEAD:.gitignore` (no working tree)."""
-    repo_dir = git_dir.parent
-    proc = subprocess.run(
-        ["git", "-C", str(repo_dir), "show", "HEAD:.gitignore"],
-        shell=False,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return None
-    return pathspec.GitIgnoreSpec.from_lines(proc.stdout.splitlines())
 
 
 def _looks_binary(path: Path) -> bool:
