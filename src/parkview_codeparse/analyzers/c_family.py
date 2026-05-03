@@ -78,9 +78,7 @@ class _State:
         if path_node is None:
             return
         raw = text(self.src, path_node).strip()
-        if (raw.startswith("<") and raw.endswith(">")) or (
-            len(raw) >= 2 and raw[0] == raw[-1] == '"'
-        ):
+        if (raw.startswith("<") and raw.endswith(">")) or (len(raw) >= 2 and raw[0] == raw[-1] == '"'):
             module = raw[1:-1]
         else:
             module = raw
