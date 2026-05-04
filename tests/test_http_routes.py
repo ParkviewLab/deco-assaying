@@ -180,6 +180,7 @@ def test_admin_stats_shape(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     for key in (
+        "version",
         "jobs_total",
         "jobs_done",
         "jobs_failed",
@@ -190,6 +191,8 @@ def test_admin_stats_shape(client: TestClient):
         "started_at",
     ):
         assert key in body
+    # Single source of truth: stats version matches /admin/version.
+    assert body["version"] == client.get("/admin/version").json()["version"]
 
 
 def test_openapi_publishes_tools(client: TestClient):

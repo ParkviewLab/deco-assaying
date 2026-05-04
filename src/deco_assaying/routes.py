@@ -347,6 +347,7 @@ class LogEvents(BaseModel):
 
 
 class Stats(BaseModel):
+    version: str
     jobs_total: int
     jobs_done: int
     jobs_failed: int
@@ -397,7 +398,7 @@ async def admin_job_log(job_id: str, from_offset: int = 0, limit: int = 1000) ->
 
 @router.get("/admin/stats", response_model=Stats, tags=["admin"])
 async def admin_stats() -> Stats:
-    return Stats(**jobs.stats())
+    return Stats(version=VERSION, **jobs.stats())
 
 
 # ---------------------------------------------------------------------------
