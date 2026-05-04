@@ -41,7 +41,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from deco_assaying import analyze, manifest, providers, source, walker
+from deco_assaying import analyze, config, manifest, providers, source, walker
 from deco_assaying.config import DEFAULT_MAX_PARTIAL_CLONE_BYTES, JOB_HISTORY_MAX
 
 log = logging.getLogger(__name__)
@@ -61,14 +61,24 @@ _TERMINAL_STATES = frozenset({"done", "failed", "cancelled"})
 # Public entry points (called by routes.py)
 
 
-def start_index_repo(arguments: dict[str, Any]) -> str:
-    """Register and start an indexing job; return its id immediately."""
+def start_index_repo(arguments: dict[str, Any]) -> tuple[str, Path]:
+    """Register and start an indexing job.
+
+    The server allocates `config.OUTPUT_ROOT/{job_id}/` for the
+    output; callers no longer supply a path. Returns
+    `(job_id, output_path)` so the caller knows where to find the
+    artifacts (or where the download API will serve them from).
+
+    Raises `source.SourceError` if the output dir can't be created
+    (e.g. `OUTPUT_ROOT` is unwritable).
+    """
     job_id = uuid.uuid4().hex[:16]
+    output_path = source.prepare_output_dir(config.OUTPUT_ROOT, job_id)
     now = time.time()
     job: dict[str, Any] = {
         "job_id": job_id,
         "source": arguments["source"],
-        "output_dir": arguments["output_dir"],
+        "output_path": str(output_path),
         "git_ref": arguments.get("git_ref") or "",
         "options": _options_from_args(arguments),
         "status": "pending",
@@ -93,7 +103,7 @@ def start_index_repo(arguments: dict[str, Any]) -> str:
         daemon=True,
     )
     thread.start()
-    return job_id
+    return job_id, output_path
 
 
 def get_status(job_id: str) -> dict[str, Any] | None:
@@ -579,9 +589,14 @@ def _fetch_batch(
 
 
 def _options_from_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Pluck the per-call options out of the MCP arguments dict.
+
+    `output_dir` and `force` are not options anymore — the server
+    always allocates `OUTPUT_ROOT/{job_id}/` and that dir is fresh
+    every time, so there's never an existing dir to overwrite.
+    """
     max_bytes = int(arguments.get("max_file_bytes", 2 * 1024 * 1024))
     return {
-        "force": bool(arguments.get("force", False)),
         "respect_gitignore": bool(arguments.get("respect_gitignore", True)),
         "extra_ignore_globs": list(arguments.get("extra_ignore_globs") or []),
         "max_file_bytes": max_bytes,
@@ -603,7 +618,7 @@ def _public_view(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job["job_id"],
         "source": job["source"],
-        "output_dir": job["output_dir"],
+        "output_path": job["output_path"],
         "state": job["status"],
         "progress": {
             "files_done": job["files_done"],
@@ -655,10 +670,12 @@ def _run_job(job_id: str) -> None:
             job = _jobs[job_id]
             options = job["options"]
             src_arg = job["source"]
-            output_dir_arg = job["output_dir"]
+            output_dir = Path(job["output_path"])
             git_ref = job["git_ref"]
 
-        output_dir = source.validate_output_dir(output_dir_arg, force=options["force"])
+        # `output_dir` is already created by start_index_repo via
+        # source.prepare_output_dir; we just set up the per-job
+        # subpaths under it.
         files_dir = output_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / "log.jsonl"

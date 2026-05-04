@@ -7,7 +7,17 @@ import json
 import time
 from pathlib import Path
 
-from deco_assaying import jobs
+import pytest
+
+from deco_assaying import config, jobs
+
+
+@pytest.fixture
+def output_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Per-test OUTPUT_ROOT under tmp_path so jobs land in isolation."""
+    root = tmp_path / "output"
+    monkeypatch.setattr(config, "OUTPUT_ROOT", root)
+    return root
 
 
 def _wait_done(job_id: str, timeout: float = 30.0) -> dict:
@@ -26,10 +36,8 @@ def _write(p: Path, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 
-def test_index_repo_against_local_fixture(tmp_path: Path):
+def test_index_repo_against_local_fixture(tmp_path: Path, output_root: Path):
     src = tmp_path / "src"
-    out = tmp_path / "out"
-
     _write(src / "alpha.py", '"""alpha doc."""\n\ndef hello(name): return f"hi {name}"\n')
     _write(src / "pkg" / "beta.py", "class Beta:\n    def m(self): return 1\n")
     _write(src / "main.go", 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("hi")\n}\n')
@@ -40,20 +48,19 @@ def test_index_repo_against_local_fixture(tmp_path: Path):
     _write(src / "ignored.py", "# should be skipped\n")
     _write(src / "node_modules" / "leftpad" / "index.js", "export default x => x;\n")
 
-    job_id = jobs.start_index_repo(
-        {
-            "source": str(src),
-            "output_dir": str(out),
-        }
-    )
+    job_id, output_path = jobs.start_index_repo({"source": str(src)})
+    assert output_path.parent == output_root
+    assert output_path.name == job_id
+
     snap = _wait_done(job_id)
     assert snap["state"] == "done", f"job failed: {snap}"
+    assert snap["output_path"] == str(output_path)
 
     # Manifest exists and has the rollup we expect.
     manifest_path = Path(snap["manifest_path"])
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text())
-    assert manifest["file_count"] >= 5  # 5 source files + README + .gitignore
+    assert manifest["file_count"] >= 5
     assert "python" in manifest["languages"]
     assert "go" in manifest["languages"]
     assert "typescript" in manifest["languages"]
@@ -61,7 +68,7 @@ def test_index_repo_against_local_fixture(tmp_path: Path):
     assert manifest["test_file_count"] >= 1
 
     # Per-file artifacts mirror the source tree.
-    files_dir = out / "files"
+    files_dir = output_path / "files"
     assert (files_dir / "alpha.py.json").exists()
     assert (files_dir / "pkg" / "beta.py.json").exists()
     assert (files_dir / "main.go.json").exists()
@@ -76,89 +83,52 @@ def test_index_repo_against_local_fixture(tmp_path: Path):
     assert any(s["qualified_name"] == "hello" for s in alpha["symbols"])
 
     # symbols.json and languages.json wrote.
-    symbols = json.loads((out / "symbols.json").read_text())
+    symbols = json.loads((output_path / "symbols.json").read_text())
     qnames = {e["qualified_name"] for e in symbols["entries"]}
     assert "hello" in qnames
     assert any(q.startswith("Beta") for q in qnames)
 
-    languages = json.loads((out / "languages.json").read_text())
+    languages = json.loads((output_path / "languages.json").read_text())
     assert "python" in languages["languages"]
 
     # log.jsonl contains a stream of events.
-    log_lines = [json.loads(ln) for ln in (out / "log.jsonl").read_text().splitlines() if ln.strip()]
+    log_lines = [json.loads(ln) for ln in (output_path / "log.jsonl").read_text().splitlines() if ln.strip()]
     events = {ev["event"] for ev in log_lines}
     assert "walk_done" in events
     assert "file_done" in events
     assert "manifest_written" in events
 
     # tree.json lists every path the walker saw — analyzed and skipped.
-    tree = json.loads((out / "tree.json").read_text())
+    tree = json.loads((output_path / "tree.json").read_text())
     by_path = {e["path"]: e for e in tree["entries"]}
     assert by_path["alpha.py"]["analyzed"] is True
-    # `ignored.py` is matched by .gitignore and recorded as skipped.
     assert "ignored.py" in by_path
     assert by_path["ignored.py"]["analyzed"] is False
     assert by_path["ignored.py"]["skip_reason"] == "gitignore"
-    # node_modules entries don't show up — directory-level skip drops them
-    # before we record per-file decisions, so tree.json stays compact.
     assert not any(p.startswith("node_modules/") for p in by_path)
-    # Manifest exposes the rolled-up skip counts.
     assert manifest["tree_total"] == len(by_path)
     assert manifest["skipped_count"] >= 1
     assert manifest["skipped_by_reason"].get("gitignore", 0) >= 1
 
 
-def test_index_repo_refuses_non_empty_output_without_force(tmp_path: Path):
-    src = tmp_path / "src"
-    out = tmp_path / "out"
-    _write(src / "x.py", "x = 1\n")
-    out.mkdir()
-    (out / "preexisting.txt").write_text("don't touch me\n")
-
-    job_id = jobs.start_index_repo({"source": str(src), "output_dir": str(out)})
-    snap = _wait_done(job_id)
-    assert snap["state"] == "failed"
-    assert snap["error"] is not None
-    assert "not empty" in snap["error"]
-
-
-def test_index_repo_force_overwrites(tmp_path: Path):
-    src = tmp_path / "src"
-    out = tmp_path / "out"
-    _write(src / "x.py", "x = 1\n")
-    out.mkdir()
-    (out / "preexisting.txt").write_text("don't touch me\n")
-
-    job_id = jobs.start_index_repo(
-        {
-            "source": str(src),
-            "output_dir": str(out),
-            "force": True,
-        }
-    )
-    snap = _wait_done(job_id)
-    assert snap["state"] == "done", f"failed: {snap}"
-    assert not (out / "preexisting.txt").exists()  # wiped by force
-    assert (out / "manifest.json").exists()
-
-
-def test_index_repo_rejects_relative_output_dir(tmp_path: Path):
+def test_index_repo_returns_fresh_output_path_per_call(tmp_path: Path, output_root: Path):
+    """Two index_repo calls against the same source land in two different
+    `OUTPUT_ROOT/{job_id}/` dirs — server allocates a fresh one each time."""
     src = tmp_path / "src"
     _write(src / "x.py", "x = 1\n")
-    job_id = jobs.start_index_repo({"source": str(src), "output_dir": "relative/path"})
-    snap = _wait_done(job_id)
-    assert snap["state"] == "failed"
-    assert "absolute" in snap["error"]
+
+    job_a, path_a = jobs.start_index_repo({"source": str(src)})
+    job_b, path_b = jobs.start_index_repo({"source": str(src)})
+    _wait_done(job_a)
+    _wait_done(job_b)
+    assert job_a != job_b
+    assert path_a != path_b
+    assert path_a.parent == output_root
+    assert path_b.parent == output_root
 
 
-def test_index_repo_rejects_unsafe_url(tmp_path: Path):
-    out = tmp_path / "out"
-    job_id = jobs.start_index_repo(
-        {
-            "source": "git@github.com:foo/bar.git",
-            "output_dir": str(out),
-        }
-    )
+def test_index_repo_rejects_unsafe_url(output_root: Path):
+    job_id, _ = jobs.start_index_repo({"source": "git@github.com:foo/bar.git"})
     snap = _wait_done(job_id)
     assert snap["state"] == "failed"
     assert "unsupported" in snap["error"].lower() or "scheme" in snap["error"].lower()

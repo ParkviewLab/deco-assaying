@@ -36,22 +36,6 @@ from deco_assaying import providers
 GITHUB_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+?(?:\.git)?$")
 GIT_REF = re.compile(r"^[A-Za-z0-9._/\-]{1,250}$")
 
-_FORBIDDEN_OUTPUT_DIRS: frozenset[Path] = frozenset(
-    {
-        Path("/"),
-        Path("/etc"),
-        Path("/usr"),
-        Path("/var"),
-        Path("/bin"),
-        Path("/sbin"),
-        Path("/boot"),
-        Path("/dev"),
-        Path("/proc"),
-        Path("/sys"),
-        Path.home(),
-    }
-)
-
 
 class SourceError(ValueError):
     """Raised when source/output_dir validation fails."""
@@ -81,36 +65,21 @@ def is_repo_url(source: str) -> bool:
     return providers.is_repo_url(source)
 
 
-def validate_output_dir(output_dir: str, *, force: bool) -> Path:
-    """Validate the output_dir argument and prepare it for writing.
+def prepare_output_dir(output_root: Path, job_id: str) -> Path:
+    """Allocate a fresh per-job output dir under `output_root`.
 
-    Returns the resolved absolute Path. Raises SourceError on any unsafe
-    input. If the dir already exists and contains entries, requires
-    `force=True` to proceed; in that case we wipe it (but never follow
-    symlinks).
+    Always-managed mode: the server picks the path; callers don't
+    supply one. We create `output_root/{job_id}/` (parents included)
+    and return it. job_ids are uuid4 hex slices so collision is
+    effectively zero — but if we ever do collide with a non-empty
+    directory we raise rather than silently overwriting.
     """
-    if not output_dir:
-        raise SourceError("output_dir is required")
-    p = Path(output_dir)
-    if not p.is_absolute():
-        raise SourceError("output_dir must be an absolute path")
-    if ".." in p.parts:
-        raise SourceError("output_dir must not contain '..' segments")
-    resolved = p.resolve(strict=False)
-    if resolved in _FORBIDDEN_OUTPUT_DIRS:
-        raise SourceError(f"output_dir refuses to operate on {resolved}")
-    if resolved.is_symlink():
-        raise SourceError("output_dir must not be a symlink")
-
-    if resolved.exists():
-        if not resolved.is_dir():
-            raise SourceError("output_dir exists and is not a directory")
-        if any(resolved.iterdir()):
-            if not force:
-                raise SourceError("output_dir is not empty; pass force=true to overwrite")
-            _safe_clean(resolved)
-    resolved.mkdir(parents=True, exist_ok=True)
-    return resolved
+    output_root.mkdir(parents=True, exist_ok=True)
+    target = (output_root / job_id).resolve(strict=False)
+    if target.exists() and any(target.iterdir()):
+        raise SourceError(f"output dir already exists and is not empty: {target}")
+    target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def validate_local_source(source: str) -> Path:

@@ -32,6 +32,16 @@ def client():
         yield c
 
 
+@pytest.fixture
+def output_root(tmp_path, monkeypatch):
+    """Per-test OUTPUT_ROOT under tmp_path so jobs don't share state."""
+    from deco_assaying import config
+
+    root = tmp_path / "output"
+    monkeypatch.setattr(config, "OUTPUT_ROOT", root)
+    return root
+
+
 def _parse_sse(body: str) -> list[dict]:
     """Pull `data: <json>` payloads out of a Streamable HTTP SSE response."""
     out: list[dict] = []
@@ -296,10 +306,9 @@ def test_mcp_analyze_file_unknown_language_envelope(client: TestClient):
 # MCP /sse — index_repo end-to-end
 
 
-def test_mcp_index_repo_end_to_end(client: TestClient, tmp_path: Path):
+def test_mcp_index_repo_end_to_end(client: TestClient, tmp_path: Path, output_root: Path):
     sid = _initialize(client)
     src = tmp_path / "src"
-    out = tmp_path / "out"
     (src / "pkg").mkdir(parents=True)
     (src / "alpha.py").write_text('"""alpha."""\n\ndef f(): return 1\n')
     (src / "pkg" / "beta.py").write_text("class B:\n    pass\n")
@@ -308,11 +317,15 @@ def test_mcp_index_repo_end_to_end(client: TestClient, tmp_path: Path):
         client,
         sid,
         "index_repo",
-        {"source": str(src), "output_dir": str(out)},
+        {"source": str(src)},
         req_id=300,
     )
     assert "job_id" in started
+    assert "output_path" in started
     job_id = started["job_id"]
+    out = Path(started["output_path"])
+    assert out.parent == output_root
+    assert out.name == job_id
 
     # Poll get_job_status until done.
     deadline = time.time() + 20
@@ -331,6 +344,7 @@ def test_mcp_index_repo_end_to_end(client: TestClient, tmp_path: Path):
         pytest.fail("index_repo job did not finish in time")
 
     assert snap["state"] == "done", f"job snap: {snap}"
+    assert snap["output_path"] == str(out)
     assert snap["progress"]["files_done"] >= 2
     assert snap["progress"]["files_total"] >= 2
 
@@ -369,28 +383,25 @@ def test_mcp_cancel_unknown_job(client: TestClient):
 
 
 @pytest.mark.network
-def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path):
+def test_mcp_index_repo_clones_public_github(client: TestClient, output_root: Path):
     """End-to-end clone of this project's own public GitHub repo.
 
     Marked `network` so CI environments without internet (or with a flaky
     git host) can deselect via `pytest -m "not network"`. Locally this
-    exercises the full happy path: validate URL -> shallow clone into
-    output_dir/.source/ -> walk -> analyze every file -> write rollups.
+    exercises the full happy path: validate URL -> partial clone into
+    output_path/.source/ -> walk -> analyze every file -> write rollups.
     """
     sid = _initialize(client)
-    out = tmp_path / "out"
 
     started = _call_tool(
         client,
         sid,
         "index_repo",
-        {
-            "source": "https://github.com/garycoding/deco-assaying",
-            "output_dir": str(out),
-        },
+        {"source": "https://github.com/garycoding/deco-assaying"},
         req_id=600,
     )
     job_id = started["job_id"]
+    out = Path(started["output_path"])
 
     # Clone + analyze every file: generous timeout for slow networks.
     deadline = time.time() + 120
@@ -413,9 +424,7 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path)
         pytest.skip(f"network/git unavailable: {snap['error']}")
     assert snap["state"] == "done", f"job snap: {snap}"
 
-    # The partial clone landed under output_dir/.source/. In lazy mode
-    # the working tree is empty (only .git/ exists) — we never check out
-    # any files. The full path inventory lives in tree.json.
+    # The partial clone landed under output_path/.source/.
     assert (out / ".source").is_dir()
     assert (out / ".source" / ".git").is_dir()
 
@@ -424,8 +433,7 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path)
     assert manifest["file_count"] > 10
     assert "python" in manifest["languages"]
 
-    # tree.json lists every path the walker observed (analyzed + skipped),
-    # giving cobgrind a full picture of repo organization.
+    # tree.json lists every path the walker observed (analyzed + skipped).
     tree = json.loads((out / "tree.json").read_text())
     paths = {e["path"] for e in tree["entries"]}
     assert "pyproject.toml" in paths
@@ -435,34 +443,3 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path)
     symbols = json.loads((out / "symbols.json").read_text())
     qnames = {e["qualified_name"] for e in symbols["entries"]}
     assert "analyze_inline" in qnames
-
-
-def test_mcp_index_repo_rejects_relative_output(client: TestClient, tmp_path: Path):
-    sid = _initialize(client)
-    src = tmp_path / "src"
-    src.mkdir()
-    (src / "x.py").write_text("x = 1\n")
-
-    started = _call_tool(
-        client,
-        sid,
-        "index_repo",
-        {"source": str(src), "output_dir": "relative/path"},
-        req_id=500,
-    )
-    job_id = started["job_id"]
-
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        snap = _call_tool(
-            client,
-            sid,
-            "get_job_status",
-            {"job_id": job_id},
-            req_id=int(time.time() * 1000) % 1_000_000,
-        )
-        if snap.get("state") in ("done", "failed", "cancelled"):
-            break
-        time.sleep(0.05)
-    assert snap["state"] == "failed"
-    assert "absolute" in (snap["error"] or "")

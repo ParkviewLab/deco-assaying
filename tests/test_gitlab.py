@@ -10,8 +10,17 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from deco_assaying import gitlab, jobs
+import pytest
+
+from deco_assaying import config, gitlab, jobs
 from deco_assaying import gitlab as gitlab_provider
+
+
+@pytest.fixture
+def output_root(tmp_path, monkeypatch):
+    root = tmp_path / "output"
+    monkeypatch.setattr(config, "OUTPUT_ROOT", root)
+    return root
 
 
 def _mock_response(payload):
@@ -228,24 +237,21 @@ def _wait_done(job_id: str, timeout: float = 30.0) -> dict:
     raise AssertionError("job did not finish")
 
 
-def test_gitlab_streaming_end_to_end(tmp_path: Path):
+def test_gitlab_streaming_end_to_end(output_root: Path):
     """Drive the full job through the GitLab provider with mocked HTTP.
 
     Forces streaming via a tiny `max_partial_clone_bytes`. Verifies the
     job completes with provider=gitlab in the log events and the
     expected manifest + tree.json shape.
     """
-    out = tmp_path / "out"
-
     with (
         patch.object(gitlab_provider, "fetch_blob_sizes", side_effect=_fake_blob_sizes),
         patch.object(gitlab_provider, "fetch_default_branch", side_effect=_fake_default_branch),
         patch.object(gitlab_provider, "fetch_blob_via_raw", side_effect=_fake_blob_via_raw),
     ):
-        job_id = jobs.start_index_repo(
+        job_id, out = jobs.start_index_repo(
             {
                 "source": "https://gitlab.com/fake/repo",
-                "output_dir": str(out),
                 "max_partial_clone_bytes": 50,  # force streaming
             }
         )

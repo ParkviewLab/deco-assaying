@@ -2,6 +2,7 @@
 
 import os
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 try:
     VERSION: str = version("deco-assaying")
@@ -10,6 +11,18 @@ except PackageNotFoundError:  # editable install before first build
 
 PORT = int(os.environ.get("PORT", "35832"))
 HOST = os.environ.get("HOST", "0.0.0.0")
+
+# Where the server allocates per-job output directories. Each job gets
+# `OUTPUT_ROOT/{job_id}/` with the manifest, log, files/, etc. The
+# server always picks the path itself; callers never supply one. In
+# the daemon deployment the default `./output` (relative to CWD) is
+# fine; in the Dockerfile we override `OUTPUT_ROOT=/data` and mount a
+# named volume there.
+OUTPUT_ROOT: Path = Path(os.environ.get("OUTPUT_ROOT", "./output")).resolve()
+
+# How many days a finished job's output dir lingers before the
+# retention sweeper purges it. `0` disables the sweeper entirely.
+OUTPUT_EXPIRY_DAYS: int = int(os.environ.get("OUTPUT_EXPIRY_DAYS", "7"))
 
 # Job table bounds (in-memory only in v1).
 JOB_HISTORY_MAX = int(os.environ.get("JOB_HISTORY_MAX", "100"))

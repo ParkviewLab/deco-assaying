@@ -6,41 +6,37 @@ import pytest
 
 from deco_assaying import source
 
-# --- output_dir validation ----------------------------------------------
+# --- prepare_output_dir (always-managed mode) ---------------------------
 
 
-def test_output_dir_must_be_absolute():
-    with pytest.raises(source.SourceError, match="absolute"):
-        source.validate_output_dir("relative/path", force=False)
-
-
-def test_output_dir_rejects_dotdot():
-    with pytest.raises(source.SourceError, match=r"\.\."):
-        source.validate_output_dir("/tmp/foo/../bar", force=False)
-
-
-def test_output_dir_rejects_root():
-    with pytest.raises(source.SourceError, match="refuses"):
-        source.validate_output_dir("/", force=False)
-
-
-def test_output_dir_rejects_non_empty_without_force(tmp_path: Path):
-    (tmp_path / "thing.txt").write_text("x")
-    with pytest.raises(source.SourceError, match="not empty"):
-        source.validate_output_dir(str(tmp_path), force=False)
-
-
-def test_output_dir_force_clears_non_empty(tmp_path: Path):
-    (tmp_path / "thing.txt").write_text("x")
-    out = source.validate_output_dir(str(tmp_path), force=True)
-    assert out == tmp_path.resolve()
-    assert list(out.iterdir()) == []
-
-
-def test_output_dir_creates_missing_parents(tmp_path: Path):
-    target = tmp_path / "new" / "place"
-    out = source.validate_output_dir(str(target), force=False)
+def test_prepare_output_dir_creates_under_root(tmp_path: Path):
+    out = source.prepare_output_dir(tmp_path / "output", "abc123")
+    assert out == (tmp_path / "output" / "abc123").resolve()
     assert out.exists() and out.is_dir()
+
+
+def test_prepare_output_dir_creates_missing_parent(tmp_path: Path):
+    root = tmp_path / "deep" / "missing" / "output"
+    out = source.prepare_output_dir(root, "job1")
+    assert out.exists()
+    assert root.exists()
+
+
+def test_prepare_output_dir_accepts_pre_existing_empty_dir(tmp_path: Path):
+    root = tmp_path / "output"
+    target = root / "job1"
+    target.mkdir(parents=True)
+    out = source.prepare_output_dir(root, "job1")
+    assert out == target.resolve()
+
+
+def test_prepare_output_dir_rejects_non_empty_collision(tmp_path: Path):
+    root = tmp_path / "output"
+    target = root / "job1"
+    target.mkdir(parents=True)
+    (target / "leftover.txt").write_text("x")
+    with pytest.raises(source.SourceError, match="already exists"):
+        source.prepare_output_dir(root, "job1")
 
 
 # --- local source validation --------------------------------------------
@@ -70,9 +66,7 @@ def test_git_ref_basic_branch():
 
 
 def test_git_ref_rejects_shell_metachars():
-    for bad in (";", "$(whoami)", "main; rm -rf /", "a b", ""):
-        if bad == "":
-            continue
+    for bad in (";", "$(whoami)", "main; rm -rf /", "a b"):
         with pytest.raises(source.SourceError):
             source.validate_git_ref(bad)
 
@@ -94,6 +88,12 @@ def test_is_github_url_rejects_anything_else():
         "/local/path",
     ):
         assert not source.is_github_url(bad)
+
+
+def test_is_repo_url_accepts_github_and_gitlab():
+    assert source.is_repo_url("https://github.com/octocat/hello-world")
+    assert source.is_repo_url("https://gitlab.com/group/sub/repo")
+    assert not source.is_repo_url("https://bitbucket.org/foo/bar")
 
 
 def test_resolve_source_rejects_non_https_url(tmp_path: Path):

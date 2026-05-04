@@ -92,9 +92,12 @@ async def list_tools() -> list[types.Tool]:
             name="index_repo",
             description=(
                 "Start an asynchronous job that indexes a repository (local "
-                "path or GitHub URL) and writes per-file JSON artifacts plus "
-                "a manifest.json under output_dir. Returns a job_id; poll "
-                "get_job_status or watch output_dir/log.jsonl."
+                "path, GitHub URL, or GitLab URL) and writes per-file JSON "
+                "artifacts plus a manifest.json. The server allocates a "
+                "fresh output directory under OUTPUT_ROOT (default ./output "
+                "for the daemon, /data in the docker image) and returns "
+                "the absolute path in `output_path`. Poll get_job_status "
+                "or watch output_path/log.jsonl."
             ),
             inputSchema={
                 "type": "object",
@@ -110,10 +113,6 @@ async def list_tools() -> list[types.Tool]:
                             "and access private repos."
                         ),
                     },
-                    "output_dir": {
-                        "type": "string",
-                        "description": "Absolute path to the directory where artifacts will be written.",
-                    },
                     "git_ref": {
                         "type": "string",
                         "description": (
@@ -122,11 +121,6 @@ async def list_tools() -> list[types.Tool]:
                             "paths. Defaults to the repo's default branch."
                         ),
                         "default": "",
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "If true, overwrite a non-empty output_dir.",
-                        "default": False,
                     },
                     "respect_gitignore": {"type": "boolean", "default": True},
                     "extra_ignore_globs": {
@@ -187,7 +181,7 @@ async def list_tools() -> list[types.Tool]:
                     "include_chunks": {"type": "boolean", "default": True},
                     "chunk_max_tokens": {"type": "integer", "default": 800},
                 },
-                "required": ["source", "output_dir"],
+                "required": ["source"],
             },
         ),
         types.Tool(
@@ -251,8 +245,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             )
 
         if name == "index_repo":
-            job_id = jobs.start_index_repo(arguments)
-            return _ok({"job_id": job_id, "output_dir": arguments["output_dir"]})
+            job_id, output_path = jobs.start_index_repo(arguments)
+            return _ok({"job_id": job_id, "output_path": str(output_path)})
 
         if name == "get_job_status":
             snap = jobs.get_status(arguments["job_id"])
@@ -327,7 +321,7 @@ class JobProgress(BaseModel):
 class JobSummary(BaseModel):
     job_id: str
     source: str
-    output_dir: str
+    output_path: str
     state: str
     progress: JobProgress
     errors_count: int

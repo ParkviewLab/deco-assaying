@@ -8,8 +8,18 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from deco_assaying import config, jobs, walker
 from deco_assaying import github as github_provider
-from deco_assaying import jobs, walker
+
+
+@pytest.fixture
+def output_root(tmp_path, monkeypatch):
+    root = tmp_path / "output"
+    monkeypatch.setattr(config, "OUTPUT_ROOT", root)
+    return root
+
 
 # ---------------------------------------------------------------------------
 # walker.walk_from_inventory
@@ -160,21 +170,18 @@ def _wait_done(job_id: str, timeout: float = 30.0) -> dict:
     raise AssertionError(f"job {job_id} did not finish")
 
 
-def test_streaming_end_to_end_with_mocked_github(tmp_path: Path):
+def test_streaming_end_to_end_with_mocked_github(output_root: Path):
     """Force streaming mode via a tiny `max_partial_clone_bytes` and verify
     everything wires together: planning, batching, raw fetch, analyze,
     delete, manifest + tree.json."""
-    out = tmp_path / "out"
-
     with (
         patch.object(github_provider, "fetch_blob_sizes", side_effect=_fake_blob_sizes),
         patch.object(github_provider, "fetch_default_branch", side_effect=_fake_default_branch),
         patch.object(github_provider, "fetch_blob_via_raw", side_effect=_fake_blob_via_raw),
     ):
-        job_id = jobs.start_index_repo(
+        job_id, out = jobs.start_index_repo(
             {
                 "source": "https://github.com/fake/repo",
-                "output_dir": str(out),
                 # Force streaming: cap at 50 bytes -> our two .py files (>50 each)
                 # will land in separate batches.
                 "max_partial_clone_bytes": 50,
@@ -223,20 +230,14 @@ def test_streaming_end_to_end_with_mocked_github(tmp_path: Path):
     assert src_event["mode"] == "streaming"
 
 
-def test_streaming_not_used_when_below_threshold(tmp_path: Path):
+def test_streaming_not_used_when_below_threshold(tmp_path: Path, output_root: Path):
     """Below-threshold GitHub jobs should still take the single-clone path."""
     src = tmp_path / "src"
     src.mkdir()
     (src / "x.py").write_text("x = 1\n")
-    out = tmp_path / "out"
 
     # No mocking — local source path takes the single-clone branch.
-    job_id = jobs.start_index_repo(
-        {
-            "source": str(src),
-            "output_dir": str(out),
-        }
-    )
+    job_id, out = jobs.start_index_repo({"source": str(src)})
     snap = _wait_done(job_id)
     assert snap["state"] == "done"
     log_events = [json.loads(ln) for ln in (out / "log.jsonl").read_text().splitlines() if ln.strip()]
