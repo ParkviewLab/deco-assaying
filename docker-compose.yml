@@ -1,0 +1,22 @@
+services:
+  deco-assaying:
+    image: ghcr.io/garycoding/deco-assaying:latest
+    container_name: deco-assaying
+    restart: unless-stopped
+    ports:
+      - "35832:35832"
+    volumes:
+      - deco-assaying-data:/data
+    environment:
+      OUTPUT_ROOT: /data
+      OUTPUT_EXPIRY_DAYS: "7"
+      # Uncomment to authenticate to private repos / raise rate limits:
+      # GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+    extra_hosts:
+      # Lets the consumer running on the docker host reach the server
+      # under host.docker.internal on Linux too.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  deco-assaying-data:
