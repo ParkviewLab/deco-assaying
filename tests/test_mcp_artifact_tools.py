@@ -124,6 +124,15 @@ def test_mcp_get_manifest(client, finished_job):
     assert payload["file_count"] >= 3
     assert "python" in payload["languages"]
     assert "go" in payload["languages"]
+    # languages_by_count is the same data sorted desc by file_count
+    # so the model can read off the dominant language directly.
+    by_count = payload["languages_by_count"]
+    assert isinstance(by_count, list)
+    assert {row["language"] for row in by_count} == set(payload["languages"].keys())
+    counts = [row["file_count"] for row in by_count]
+    assert counts == sorted(counts, reverse=True)
+    # Python has 2 files (alpha.py + pkg/beta.py); Go has 1.
+    assert by_count[0]["language"] == "python"
 
 
 def test_mcp_get_languages(client, finished_job):
@@ -152,6 +161,9 @@ def test_mcp_get_tree_no_filter(client, finished_job):
     paths = {e["path"] for e in payload["entries"]}
     assert {"alpha.py", "main.go", "pkg/beta.py"} <= paths
     assert payload["total_returned"] == payload["total_in_repo"]
+    # No filter → returned-size matches repo-total-size.
+    assert payload["total_size_bytes"] == payload["total_size_bytes_in_repo"]
+    assert payload["total_size_bytes"] > 0
 
 
 def test_mcp_get_tree_path_prefix(client, finished_job):
@@ -161,6 +173,8 @@ def test_mcp_get_tree_path_prefix(client, finished_job):
     paths = {e["path"] for e in payload["entries"]}
     assert paths == {"pkg/beta.py"}
     assert payload["total_returned"] < payload["total_in_repo"]
+    # Filtered slice is smaller than the whole tree.
+    assert 0 < payload["total_size_bytes"] < payload["total_size_bytes_in_repo"]
 
 
 def test_mcp_get_tree_analyzed_only(client, finished_job):

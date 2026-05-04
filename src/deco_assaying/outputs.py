@@ -254,7 +254,18 @@ def _load_json(job_dir: Path, name: str) -> Any:
 
 
 def read_manifest(job_dir: Path) -> dict[str, Any]:
-    return _load_json(job_dir, "manifest.json")
+    """Repo-level rollup with one ergonomics tweak for LLM consumers:
+    `languages_by_count` is the same data as the `languages` dict but
+    pre-sorted by file count descending — saves the model from sorting
+    a JSON object before it can reason about "the dominant language."
+    """
+    raw = _load_json(job_dir, "manifest.json")
+    langs = raw.get("languages") or {}
+    raw["languages_by_count"] = [
+        {"language": lang, "file_count": count}
+        for lang, count in sorted(langs.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    return raw
 
 
 def read_languages(job_dir: Path) -> dict[str, Any]:
@@ -274,9 +285,14 @@ def read_tree(
     """`tree.json` with optional path-prefix and analyzed-only filters.
 
     Comparison is case-sensitive forward-slash prefix match.
+
+    Includes byte totals (returned + unfiltered repo total) so an LLM
+    can see, before drilling further, whether a subdirectory is "8 KB
+    of one Python module" or "200 MB of vendored fixtures."
     """
     raw = _load_json(job_dir, "tree.json")
-    entries = raw.get("entries", [])
+    all_entries = raw.get("entries", [])
+    entries = all_entries
     if path_prefix:
         normalized = path_prefix.lstrip("/")
         entries = [e for e in entries if e["path"].startswith(normalized)]
@@ -285,8 +301,10 @@ def read_tree(
     return {
         "entries": entries,
         "filters": {"path_prefix": path_prefix, "analyzed_only": analyzed_only},
-        "total_in_repo": len(raw.get("entries", [])),
+        "total_in_repo": len(all_entries),
         "total_returned": len(entries),
+        "total_size_bytes": sum(e.get("size", 0) for e in entries),
+        "total_size_bytes_in_repo": sum(e.get("size", 0) for e in all_entries),
     }
 
 

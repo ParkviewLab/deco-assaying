@@ -231,9 +231,11 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Return the repo-level rollup for a finished indexing "
                 "job. Always read this FIRST after a job completes — it "
-                "summarizes file count, languages, test/config/generated "
-                "buckets, parse-error count, and entry points. Small "
-                "payload."
+                "summarizes file count, languages (raw counts plus a "
+                "languages_by_count list pre-sorted by file count "
+                "descending, so you can see the dominant language at a "
+                "glance), test/config/generated buckets, parse-error "
+                "count, and entry points. Small payload."
             ),
             inputSchema={
                 "type": "object",
@@ -246,7 +248,11 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Return the repo's full path inventory (analyzed + "
                 "skipped). Filter to a subdirectory with path_prefix to "
-                "avoid pulling the whole tree on a large repo."
+                "avoid pulling the whole tree on a large repo. The "
+                "response includes total_size_bytes (returned slice) "
+                "and total_size_bytes_in_repo (unfiltered) so you can "
+                "judge whether a subtree is worth drilling into before "
+                "asking for more."
             ),
             inputSchema={
                 "type": "object",
