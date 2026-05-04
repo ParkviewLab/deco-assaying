@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from parkview_codeparse import walker
+from deco_assaying import walker
 
 
 def _mk(root: Path, rel: str, content: bytes = b"x = 1\n") -> Path:

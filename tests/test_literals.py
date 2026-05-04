@@ -1,4 +1,4 @@
-from parkview_codeparse import literals
+from deco_assaying import literals
 
 _SPAN = {"start_byte": 0, "end_byte": 0, "start_line": 1, "end_line": 1}
 

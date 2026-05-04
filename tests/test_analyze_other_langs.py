@@ -5,7 +5,7 @@ something coherent for a representative input, not that every edge case
 is covered. The Python analyzer has the deeper end-to-end test suite.
 """
 
-from parkview_codeparse import analyze
+from deco_assaying import analyze
 
 
 def _by_qname(symbols):

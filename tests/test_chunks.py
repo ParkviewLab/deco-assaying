@@ -1,4 +1,4 @@
-from parkview_codeparse import analyze
+from deco_assaying import analyze
 
 
 def test_no_chunk_crosses_function_boundary():

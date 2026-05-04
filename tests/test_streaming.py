@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from parkview_codeparse import github as github_provider
-from parkview_codeparse import jobs, walker
+from deco_assaying import github as github_provider
+from deco_assaying import jobs, walker
 
 # ---------------------------------------------------------------------------
 # walker.walk_from_inventory

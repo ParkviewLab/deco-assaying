@@ -1,4 +1,4 @@
-# parkview-codeparse-server
+# deco-assaying
 
 MCP server that performs tree-sitter-based source code analysis for the
 Cobgrind LLM-Wiki daemon.
@@ -7,7 +7,7 @@ Cobgrind LLM-Wiki daemon.
 
 ```bash
 uv sync
-uv run python -m parkview_codeparse
+uv run python -m deco_assaying
 ```
 
 The server listens on `PORT` (default `35832`) with:

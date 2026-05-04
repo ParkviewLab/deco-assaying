@@ -1,6 +1,6 @@
 """End-to-end tests for the Python analyzer."""
 
-from parkview_codeparse import analyze
+from deco_assaying import analyze
 
 _SOURCE = '''"""Top-level module docstring."""
 import os

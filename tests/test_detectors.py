@@ -1,4 +1,4 @@
-from parkview_codeparse import detectors
+from deco_assaying import detectors
 
 
 def test_is_test_by_basename():

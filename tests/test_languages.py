@@ -1,4 +1,4 @@
-from parkview_codeparse import languages
+from deco_assaying import languages
 
 
 def test_extension_detection():

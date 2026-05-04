@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from parkview_codeparse import github
+from deco_assaying import github
 
 
 def _mock_response(payload: dict | list):
@@ -104,7 +104,7 @@ def test_fetch_blob_sizes_authenticated_sets_authorization_header():
 @pytest.mark.network
 def test_fetch_blob_sizes_against_real_github():
     """Real network call: fetch sizes for this project's own public repo."""
-    sizes = github.fetch_blob_sizes("garycoding", "parkview-codeparse-server")
+    sizes = github.fetch_blob_sizes("garycoding", "deco-assaying")
     if sizes is None:
         pytest.skip("github API unavailable (rate limit or network)")
     assert "pyproject.toml" in sizes

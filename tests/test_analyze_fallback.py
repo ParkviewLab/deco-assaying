@@ -1,4 +1,4 @@
-from parkview_codeparse import analyze
+from deco_assaying import analyze
 
 
 def test_unknown_extension_returns_no_parser_envelope():

@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 
-from parkview_codeparse import jobs
+from deco_assaying import jobs
 
 
 def _wait_done(job_id: str, timeout: float = 30.0) -> dict:

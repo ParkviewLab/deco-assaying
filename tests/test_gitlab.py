@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from parkview_codeparse import gitlab, jobs
-from parkview_codeparse import gitlab as gitlab_provider
+from deco_assaying import gitlab, jobs
+from deco_assaying import gitlab as gitlab_provider
 
 
 def _mock_response(payload):
@@ -172,7 +172,7 @@ def test_fetch_blob_via_raw_url_shape():
 
 
 def test_providers_dispatcher_routes_to_gitlab():
-    from parkview_codeparse import providers
+    from deco_assaying import providers
 
     matched = providers.for_url("https://gitlab.com/foo/bar")
     assert matched is not None
@@ -182,7 +182,7 @@ def test_providers_dispatcher_routes_to_gitlab():
 
 
 def test_providers_dispatcher_routes_to_github():
-    from parkview_codeparse import providers
+    from deco_assaying import providers
 
     matched = providers.for_url("https://github.com/foo/bar")
     assert matched is not None

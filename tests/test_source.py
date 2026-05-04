@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from parkview_codeparse import source
+from deco_assaying import source
 
 # --- output_dir validation ----------------------------------------------
 

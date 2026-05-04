@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from parkview_codeparse.app import app
+from deco_assaying.app import app
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
@@ -83,7 +83,7 @@ def _initialize(client: TestClient) -> str:
         },
         req_id=1,
     )
-    assert body.get("result", {}).get("serverInfo", {}).get("name") == "parkview-codeparse-server"
+    assert body.get("result", {}).get("serverInfo", {}).get("name") == "deco-assaying"
     sid = headers.get("mcp-session-id", "")
     return sid
 
@@ -218,7 +218,7 @@ def test_mcp_initialize(client: TestClient):
         },
     )
     info = body["result"]["serverInfo"]
-    assert info["name"] == "parkview-codeparse-server"
+    assert info["name"] == "deco-assaying"
 
 
 def test_mcp_tools_list(client: TestClient):
@@ -382,7 +382,7 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, tmp_path: Path)
         sid,
         "index_repo",
         {
-            "source": "https://github.com/garycoding/parkview-codeparse-server",
+            "source": "https://github.com/garycoding/deco-assaying",
             "output_dir": str(out),
         },
         req_id=600,
