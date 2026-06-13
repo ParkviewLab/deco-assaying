@@ -386,6 +386,8 @@ git push --follow-tags      # CI fires
 
 The workflow runs four jobs: a **gate** (tag/SSOT + ancestor checks) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + [`git-cliff`](https://git-cliff.org/) categorized list), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
 
+Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md) and on the [GitHub Releases](https://github.com/ParkviewLab/deco-assaying/releases) page.
+
 Don't have the helpers? Install once: `git clone https://github.com/ParkviewLab/dev-tools.git ~/dev-tools && cd ~/dev-tools && ./install.sh`.
 
 ### Commit message convention
