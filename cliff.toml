@@ -1,0 +1,55 @@
+# git-cliff config — produces the mechanical, categorized portion of each
+# CHANGELOG.md release section. The "Highlights" header above it is written
+# separately by scripts/generate_changelog.py (LLM-generated, then
+# concatenated). See docs/CONTRIBUTING.md for the Conventional Commit
+# prefixes git-cliff matches against.
+#
+# Mirror this file verbatim into every ParkviewLab repo — the categorization
+# rules are deliberately identical across the family.
+
+[changelog]
+# The top-level "# Changelog" header lives in CHANGELOG.md and is hand-
+# maintained; git-cliff only emits the per-version body, so its own header
+# is empty.
+header = ""
+footer = ""
+trim = true
+
+# Per-version body. Intentionally does NOT include a "## [vX.Y.Z]" header
+# — generate_changelog.py wraps this with its own header so it can sit
+# the "### Highlights" section above the categorized groups.
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+
+{% for commit in commits -%}
+- {{ commit.message | split(pat="\\n") | first | upper_first | trim }}\
+{%- if commit.id %} ({{ commit.id | truncate(length=7, end="") }}){% endif %}
+{% endfor %}
+{% endfor %}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = true   # drop commits that don't match a known prefix — keeps noise out
+filter_commits = true          # skip commits whose parser entry has skip = true
+sort_commits = "oldest"        # chronological within each group reads more naturally than reverse
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+
+# Conventional Commit prefix → group. Order matters: first match wins.
+commit_parsers = [
+    { message = "^feat",     group = "Features" },
+    { message = "^fix",      group = "Bug fixes" },
+    { message = "^perf",     group = "Performance" },
+    { message = "^refactor", group = "Refactor" },
+    { message = "^docs",     group = "Docs" },
+    { message = "^test",     group = "Tests" },
+    # Noise we deliberately drop from user-facing notes. Still recorded
+    # in git history; just not surfaced in CHANGELOG.md.
+    { message = "^chore",    skip = true },
+    { message = "^ci",       skip = true },
+    { message = "^build",    skip = true },
+    { message = "^style",    skip = true },
+    { message = "^Merge",    skip = true },
+    { message = "^Revert",   group = "Reverts" },
+]
