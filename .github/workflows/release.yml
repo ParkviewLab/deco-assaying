@@ -95,3 +95,77 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Generate the Highlights paragraph + categorized list, commit the new
+  # CHANGELOG.md section back to main, and create the GitHub Release. Runs
+  # AFTER docker + pypi so the Release page points at artifacts that already
+  # exist. Two-phase invocation of generate_changelog.py keeps the LLM call
+  # to a single round-trip even though the commit-back happens onto a fresh
+  # main checkout.
+  changelog:
+    needs: [gate, docker, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # scoped here — only this job commits CHANGELOG.md back to main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + all tags for git-cliff
+          # default ref = the tag, which is what we want for `--mode=generate`
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate release-body.md (LLM call happens here)
+        env:
+          # Set at the ParkviewLab org level — inherited by every repo
+          # under the org. Missing key → script writes a placeholder
+          # paragraph and the release still ships.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_REF: ${{ github.ref }}
+        # `uv run --with anthropic` injects the SDK for just this invocation,
+        # without polluting pyproject.toml. Lets this workflow snippet be
+        # identical across every ParkviewLab repo regardless of whether
+        # `anthropic` is otherwise a project dep.
+        run: uv run --with anthropic python scripts/generate_changelog.py --mode=generate
+
+      - name: Switch to fresh origin/main and insert into CHANGELOG.md
+        run: |
+          # Stash the just-generated release body so it survives the checkout.
+          cp release-body.md /tmp/release-body.md
+          git fetch origin main
+          git checkout origin/main
+          mv /tmp/release-body.md release-body.md
+          # Re-runs only the file-manipulation half — no LLM call, no anthropic SDK needed.
+          uv run python scripts/generate_changelog.py --mode=insert
+
+      - name: Commit CHANGELOG.md back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --staged --quiet; then
+            echo "no changelog change to commit"
+            exit 0
+          fi
+          TAG="${GITHUB_REF#refs/tags/}"
+          # [skip ci] guards against any future non-tag-triggered workflows;
+          # this release workflow only fires on `push: tags` so isn't at risk
+          # of recursing, but the marker is cheap insurance.
+          git commit -m "docs(changelog): $TAG [skip ci]"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-body.md \
+            --target main

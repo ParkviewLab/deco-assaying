@@ -384,6 +384,24 @@ git release                 # annotated tag v0.1.6 from pyproject.toml
 git push --follow-tags      # CI fires
 ```
 
-The workflow builds a multi-arch image (linux/amd64 + linux/arm64) and pushes it to GHCR with `vX.Y.Z`, `vX.Y`, and `latest` tags, in parallel with publishing wheel + sdist to PyPI via trusted publishing. ~3-5 minutes end-to-end.
+The workflow runs four jobs: a **gate** (tag/SSOT + ancestor checks) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + [`git-cliff`](https://git-cliff.org/) categorized list), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
+
+Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md) and on the [GitHub Releases](https://github.com/ParkviewLab/deco-assaying/releases) page.
 
 Don't have the helpers? Install once: `git clone https://github.com/ParkviewLab/dev-tools.git ~/dev-tools && cd ~/dev-tools && ./install.sh`.
+
+### Commit message convention
+
+The changelog job categorizes commits using [Conventional Commits](https://www.conventionalcommits.org/) prefixes (see [`cliff.toml`](cliff.toml)):
+
+| Prefix | Section | Notes |
+|---|---|---|
+| `feat:` | Features | user-visible |
+| `fix:` | Bug fixes | user-visible |
+| `perf:` | Performance | user-visible |
+| `refactor:` | Refactor | |
+| `docs:` | Docs | |
+| `test:` | Tests | |
+| `chore:` / `ci:` / `build:` / `style:` | _(dropped)_ | not surfaced in CHANGELOG |
+
+Squash-merge PRs use the PR title as the commit subject — so the **PR title** is what needs the prefix. Commits without a recognised prefix are silently dropped from the CHANGELOG (still in git history). The "Highlights" paragraph at the top of each release section is generated at release time by the workflow (requires the `ANTHROPIC_API_KEY` org-level secret); if the LLM call fails, a placeholder lands and the release still ships.
