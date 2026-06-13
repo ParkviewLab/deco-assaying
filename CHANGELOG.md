@@ -23,6 +23,16 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.2.1] - 2026-06-12
+
+### Highlights
+
+This release is primarily maintenance, adding automated CHANGELOG.md generation and GitHub Release creation on tag push, with the changelog backfilled across all prior tags. The README now links to the CHANGELOG and GitHub Releases so readers can find per-version notes.
+
+### Docs
+
+- Link CHANGELOG.md and GitHub Releases from README (b3dd7ac)
+
 ## [v0.2.0] - 2026-05-18
 
 ### Highlights
