@@ -29,6 +29,20 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-06-14
+
+### Highlights
+
+This release relicenses the project to MIT OR Apache-2.0 with REUSE-compliant per-file SPDX headers and updates stale `garycoding` references to the `ParkviewLab` namespace, including the published Docker image location (now `ghcr.io/parkviewlab/deco-assaying`), README clone and registry links, and the launchd label. Internal changes include adoption of ParkviewLab handbook CI workflows and conventions, and an indirect bump of `idna` to 3.15.
+
+### Bug fixes
+
+- Point stale garycoding references at the ParkviewLab namespace (3ed745f)
+
+### Docs
+
+- V0.2.1 [skip ci] (4c09e60)
+
 ## [v0.2.1] - 2026-06-12
 
 ### Highlights
