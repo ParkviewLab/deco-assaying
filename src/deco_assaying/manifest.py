@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Repo-level rollups: manifest.json, all_symbols.json,
 top_level_symbols.json, languages.json, errors.json, tree.json,
 plus the analysis_index.json sidecar that lists every artifact

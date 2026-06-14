@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Background sweeper that purges aged-out job dirs under OUTPUT_ROOT.
 
 Runs as an asyncio task started in the FastAPI lifespan. Every

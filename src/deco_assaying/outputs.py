@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Helpers for the `/outputs/{job_id}/...` download API and the
 `get_*` artifact-fetch MCP tools.
 

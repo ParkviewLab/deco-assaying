@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Unit tests for the GitHub Trees API helper.
 
 We mock `urllib.request.urlopen` so the tests don't hit github.com.

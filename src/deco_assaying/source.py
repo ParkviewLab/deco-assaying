@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Source resolution: local path or GitHub URL -> filesystem path to walk.
 
 Validation here is the security boundary: untrusted MCP callers can pass

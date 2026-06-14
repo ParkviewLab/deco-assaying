@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Fallback analyzer for languages without a hand-written extractor.
 
 We still parse with tree-sitter, so chunks and a parse-status report are

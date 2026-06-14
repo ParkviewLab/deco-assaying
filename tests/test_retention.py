@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Tests for the retention sweeper.
 
 `sweep_once` is synchronous and pure-ish (only side-effect: rmtree on

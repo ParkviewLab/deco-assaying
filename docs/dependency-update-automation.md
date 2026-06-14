@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Dependency update automation — deferred
 
 **Status:** considered, not yet wired up. This doc captures the tradeoff

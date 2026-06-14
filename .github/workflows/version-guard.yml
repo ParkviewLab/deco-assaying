@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Version guard
+
+# Feature PRs into `develop` must NOT change the version source-of-truth — the
+# bump happens at release, on `main` (see the handbook's releases.md / ci.md).
+# The release back-merge (main→develop) is a direct push, not a PR, so it is not
+# subject to this check.
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  no-version-change:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Version SoT must be unchanged
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          fail=0
+          flag() { echo "::error::$1 changed in a feature PR — version bumps happen at release on main, not in feature work (handbook releases.md)."; fail=1; }
+          if [ -f VERSION.txt ]; then
+            old=$(git show "origin/$BASE:VERSION.txt" 2>/dev/null || echo "")
+            [ "$(cat VERSION.txt)" = "$old" ] || flag VERSION.txt
+          fi
+          if [ -f pyproject.toml ]; then
+            new=$(grep -E '^version *=' pyproject.toml | head -1 || true)
+            old=$(git show "origin/$BASE:pyproject.toml" 2>/dev/null | grep -E '^version *=' | head -1 || true)
+            [ "$new" = "$old" ] || flag "pyproject.toml [project].version"
+          fi
+          if [ -f package.json ]; then
+            new=$(grep -E '"version"' package.json | head -1 || true)
+            old=$(git show "origin/$BASE:package.json" 2>/dev/null | grep -E '"version"' | head -1 || true)
+            [ "$new" = "$old" ] || flag "package.json version"
+          fi
+          if [ "$fail" = 0 ]; then echo "version unchanged ✓"; fi
+          exit $fail

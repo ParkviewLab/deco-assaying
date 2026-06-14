@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Tests for the MCP `prompts/list` + `prompts/get` surface.
 
 The deco-assaying server ships two workflow prompts so any client
