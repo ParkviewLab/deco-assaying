@@ -12,7 +12,7 @@
 
 services:
   deco-assaying:
-    image: ghcr.io/garycoding/deco-assaying:latest
+    image: ghcr.io/parkviewlab/deco-assaying:latest
     container_name: deco-assaying
     restart: unless-stopped
 
