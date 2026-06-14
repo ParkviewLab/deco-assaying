@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # deco-assaying — architecture
 
 A 30-minute orientation for someone who's about to read or change the

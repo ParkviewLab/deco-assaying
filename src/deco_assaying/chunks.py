@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """AST-aware code chunking (cAST-style).
 
 Splits source into chunks that respect AST boundaries: a chunk never crosses

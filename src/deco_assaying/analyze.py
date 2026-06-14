@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Per-file analyzer entry point.
 
 Coordinates: language detection, tree-sitter parsing, dispatch to the

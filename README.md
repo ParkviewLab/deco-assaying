@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # deco-assaying
 
 MCP server that performs tree-sitter-based source code analysis. Designed
@@ -405,3 +411,18 @@ The changelog job categorizes commits using [Conventional Commits](https://www.c
 | `chore:` / `ci:` / `build:` / `style:` | _(dropped)_ | not surfaced in CHANGELOG |
 
 Squash-merge PRs use the PR title as the commit subject — so the **PR title** is what needs the prefix. Commits without a recognised prefix are silently dropped from the CHANGELOG (still in git history). The "Highlights" paragraph at the top of each release section is generated at release time by the workflow (requires the `ANTHROPIC_API_KEY` org-level secret); if the LLM call fails, a placeholder lands and the release still ships.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>), or
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <http://opensource.org/licenses/MIT>)
+
+at your option. In SPDX terms: `MIT OR Apache-2.0`.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this work by you shall be dual-licensed as above, without any
+additional terms or conditions. See [LICENSING.md](LICENSING.md).

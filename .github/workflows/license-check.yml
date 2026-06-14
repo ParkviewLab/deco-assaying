@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: License check
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Sync deps (including dev for pip-licenses)
+        run: uv sync
+
+      # We use a fail-on deny-list rather than an allow-list because PyPI
+      # license metadata is wildly inconsistent (MIT-CMU, "Apache 2.0
+      # License", multi-license SPDX expressions, etc.). The real concern
+      # is keeping copyleft out — specifically the PyMuPDF AGPL, Marker
+      # GPL, and Unstructured's AGPL transitive (ultralytics) trapdoors
+      # we explicitly designed this stack to avoid.
+      - name: Check transitive licenses
+        run: |
+          uv run pip-licenses \
+            --from=mixed \
+            --fail-on="GPL;GPL v2;GPL v3;GNU General Public License;GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);AGPL;Affero;GNU Affero General Public License v3;GNU Affero General Public License v3 (AGPLv3);LGPL;GNU Lesser General Public License;GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v3 (LGPLv3);GNU Library or Lesser General Public License (LGPL);SSPL;Server Side Public License" \
+            --order=license

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Generate the CHANGELOG.md section + release-body.md for the current tag.
 
 Two-phase design so the LLM call stays a single round-trip even though

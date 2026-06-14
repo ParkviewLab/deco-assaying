@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Unit tests for the GitLab provider.
 
 Network calls are mocked at the urllib level. We never hit gitlab.com.

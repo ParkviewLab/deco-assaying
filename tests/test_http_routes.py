@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """HTTP-route integration tests.
 
 Drive the FastAPI app via `TestClient` (in-process, no uvicorn), exercising:
