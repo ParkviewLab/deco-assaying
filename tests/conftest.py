@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Shared test fixtures.
 
 The MCP `/sse` transport relies on a `StreamableHTTPSessionManager`

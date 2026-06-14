@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # deco-assaying — architecture
 
 A 30-minute orientation for someone who's about to read or change the
@@ -203,7 +209,7 @@ Two equivalent shapes:
 1. **Daemon** — `uv tool install deco-assaying` or `uv run python -m
    deco_assaying`. `OUTPUT_ROOT=./output`. Same machine as the
    consumer; the consumer reads artifacts off disk.
-2. **Container** — `ghcr.io/garycoding/deco-assaying`.
+2. **Container** — `ghcr.io/parkviewlab/deco-assaying`.
    `OUTPUT_ROOT=/data` on a named volume. Consumer either shares the
    volume or pulls artifacts via the download API.
 

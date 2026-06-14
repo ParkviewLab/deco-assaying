@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # deco-assaying
 
 MCP server that performs tree-sitter-based source code analysis. Designed
@@ -85,7 +91,7 @@ below.
 After `uv tool install deco-assaying`, register a LaunchAgent so the
 daemon starts at login and restarts if it crashes.
 
-Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
+Save this as `~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist`
 (replace `CHANGE-ME` with your username):
 
 ```xml
@@ -95,7 +101,7 @@ Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.garycoding.deco-assaying</string>
+  <string>ai.parkviewlab.deco-assaying</string>
 
   <key>ProgramArguments</key>
   <array>
@@ -128,17 +134,17 @@ Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
 Load and start it:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.garycoding.deco-assaying.plist
-launchctl kickstart  -k gui/$(id -u)/com.garycoding.deco-assaying
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist
+launchctl kickstart  -k gui/$(id -u)/ai.parkviewlab.deco-assaying
 
 # Check status:
-launchctl print gui/$(id -u)/com.garycoding.deco-assaying | head -30
+launchctl print gui/$(id -u)/ai.parkviewlab.deco-assaying | head -30
 
 # Tail logs:
 tail -f ~/Library/Logs/deco-assaying.{out,err}.log
 
 # Stop / unload:
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.garycoding.deco-assaying.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist
 ```
 
 ### 4. Linux persistent daemon (systemd)
@@ -196,17 +202,17 @@ Pull the published multi-arch image (linux/amd64 + linux/arm64) and
 run it directly:
 
 ```bash
-docker pull ghcr.io/garycoding/deco-assaying:latest
+docker pull ghcr.io/parkviewlab/deco-assaying:latest
 
 docker run --rm \
   -p 35832:35832 \
   -e PUBLIC_BASE_URL=http://localhost:35832 \
   -v deco-assaying-data:/data \
-  ghcr.io/garycoding/deco-assaying:latest
+  ghcr.io/parkviewlab/deco-assaying:latest
 ```
 
 Pin a specific version with a tag — `:0.1.5`, `:0.1`, or `:latest`. See
-the [container registry](https://github.com/garycoding/deco-assaying/pkgs/container/deco-assaying)
+the [container registry](https://github.com/parkviewlab/deco-assaying/pkgs/container/deco-assaying)
 for available tags.
 
 For a real deployment, copy [`docker-compose.yml`](docker-compose.yml),
@@ -232,7 +238,7 @@ Portainer rejects caps).
 ### From source (for development)
 
 ```bash
-git clone https://github.com/garycoding/deco-assaying.git
+git clone https://github.com/parkviewlab/deco-assaying.git
 cd deco-assaying
 uv sync
 uv run python -m deco_assaying
@@ -405,3 +411,18 @@ The changelog job categorizes commits using [Conventional Commits](https://www.c
 | `chore:` / `ci:` / `build:` / `style:` | _(dropped)_ | not surfaced in CHANGELOG |
 
 Squash-merge PRs use the PR title as the commit subject — so the **PR title** is what needs the prefix. Commits without a recognised prefix are silently dropped from the CHANGELOG (still in git history). The "Highlights" paragraph at the top of each release section is generated at release time by the workflow (requires the `ANTHROPIC_API_KEY` org-level secret); if the LLM call fails, a placeholder lands and the release still ships.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>), or
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <http://opensource.org/licenses/MIT>)
+
+at your option. In SPDX terms: `MIT OR Apache-2.0`.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this work by you shall be dual-licensed as above, without any
+additional terms or conditions. See [LICENSING.md](LICENSING.md).

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Extract entities embedded in string literals.
 
 URLs, file paths, env-var names, SQL fragments, and route strings inside

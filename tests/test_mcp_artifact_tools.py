@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Tests for the get_* / list_job_files MCP tools — the v0.1.2 surface
 that lets a remote LLM read a finished job's artifacts inline.
 

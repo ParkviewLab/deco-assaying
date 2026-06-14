@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # deco-assaying — example compose stack.
 #
 # Copy this file, change the values marked CHANGE-ME, then:
@@ -12,7 +16,7 @@
 
 services:
   deco-assaying:
-    image: ghcr.io/garycoding/deco-assaying:latest
+    image: ghcr.io/parkviewlab/deco-assaying:latest
     container_name: deco-assaying
     restart: unless-stopped
 

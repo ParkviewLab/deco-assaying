@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Tests for the streaming-fetch path: bin-packing, walk_from_inventory,
 and a full end-to-end run with mocked GitHub HTTP calls."""
 

@@ -1,0 +1,14 @@
+# REUSE annotations for files that can't carry a comment header (dotfiles, the
+# version pin, the lockfile). Everything else has a per-file SPDX header.
+# deco-assaying is uniformly licensed `MIT OR Apache-2.0`.
+# Verify: uvx --from "reuse[charset-normalizer]" reuse lint
+version = 1
+
+SPDX-PackageName = "deco-assaying"
+SPDX-PackageSupplier = "Gary Frattarola <garyf@parkviewlab.ai>"
+
+[[annotations]]
+path = [".gitignore", ".python-version", "uv.lock"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Gary Frattarola <garyf@parkviewlab.ai>"
+SPDX-License-Identifier = "MIT OR Apache-2.0"

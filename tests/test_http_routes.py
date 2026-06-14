@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """HTTP-route integration tests.
 
 Drive the FastAPI app via `TestClient` (in-process, no uvicorn), exercising:
@@ -413,7 +417,7 @@ def test_mcp_index_repo_clones_public_github(client: TestClient, output_root: Pa
         client,
         sid,
         "index_repo",
-        {"source": "https://github.com/garycoding/deco-assaying"},
+        {"source": "https://github.com/parkviewlab/deco-assaying"},
         req_id=600,
     )
     job_id = started["job_id"]

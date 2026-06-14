@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Dependency update automation — deferred
 
 **Status:** considered, not yet wired up. This doc captures the tradeoff
@@ -8,7 +14,7 @@ space so future-us can pick it up cold.
 GitHub's repo settings already give us the **reactive** side:
 
 - **Dependabot security updates** can be flipped on at
-  <https://github.com/garycoding/deco-assaying/settings/security_analysis>.
+  <https://github.com/parkviewlab/deco-assaying/settings/security_analysis>.
   When a dep we use lands in the GitHub Advisory Database with a CVE,
   Dependabot opens a PR bumping it to a fixed version.
 - **Secret scanning + push protection** are on (public-repo defaults).

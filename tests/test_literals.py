@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 from deco_assaying import literals
 
 _SPAN = {"start_byte": 0, "end_byte": 0, "start_line": 1, "end_line": 1}

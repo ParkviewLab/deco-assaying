@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # git-cliff config — produces the mechanical, categorized portion of each
 # CHANGELOG.md release section. The "Highlights" header above it is written
 # separately by scripts/generate_changelog.py (LLM-generated, then

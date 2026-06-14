@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Tests for the `/outputs/{job_id}/...` download API.
 
 Drives the running FastAPI app via TestClient. Each test runs a small

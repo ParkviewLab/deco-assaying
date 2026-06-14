@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """End-to-end test: drive `jobs.start_index_repo` against a tiny local repo
 and verify the output directory layout matches the plan."""
 

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: REUSE
+
+# REUSE/SPDX compliance — a required check in every repo (code and docs).
+# See the handbook's licensing.md and ci.md.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  reuse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
+      - name: reuse lint
+        run: uvx --from "reuse[charset-normalizer]" reuse lint

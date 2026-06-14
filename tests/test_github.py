@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Unit tests for the GitHub Trees API helper.
 
 We mock `urllib.request.urlopen` so the tests don't hit github.com.
@@ -104,7 +108,7 @@ def test_fetch_blob_sizes_authenticated_sets_authorization_header():
 @pytest.mark.network
 def test_fetch_blob_sizes_against_real_github():
     """Real network call: fetch sizes for this project's own public repo."""
-    sizes = github.fetch_blob_sizes("garycoding", "deco-assaying")
+    sizes = github.fetch_blob_sizes("parkviewlab", "deco-assaying")
     if sizes is None:
         pytest.skip("github API unavailable (rate limit or network)")
     assert "pyproject.toml" in sizes
