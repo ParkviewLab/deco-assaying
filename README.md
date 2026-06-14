@@ -85,7 +85,7 @@ below.
 After `uv tool install deco-assaying`, register a LaunchAgent so the
 daemon starts at login and restarts if it crashes.
 
-Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
+Save this as `~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist`
 (replace `CHANGE-ME` with your username):
 
 ```xml
@@ -95,7 +95,7 @@ Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.garycoding.deco-assaying</string>
+  <string>ai.parkviewlab.deco-assaying</string>
 
   <key>ProgramArguments</key>
   <array>
@@ -128,17 +128,17 @@ Save this as `~/Library/LaunchAgents/com.garycoding.deco-assaying.plist`
 Load and start it:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.garycoding.deco-assaying.plist
-launchctl kickstart  -k gui/$(id -u)/com.garycoding.deco-assaying
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist
+launchctl kickstart  -k gui/$(id -u)/ai.parkviewlab.deco-assaying
 
 # Check status:
-launchctl print gui/$(id -u)/com.garycoding.deco-assaying | head -30
+launchctl print gui/$(id -u)/ai.parkviewlab.deco-assaying | head -30
 
 # Tail logs:
 tail -f ~/Library/Logs/deco-assaying.{out,err}.log
 
 # Stop / unload:
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.garycoding.deco-assaying.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.parkviewlab.deco-assaying.plist
 ```
 
 ### 4. Linux persistent daemon (systemd)
@@ -196,17 +196,17 @@ Pull the published multi-arch image (linux/amd64 + linux/arm64) and
 run it directly:
 
 ```bash
-docker pull ghcr.io/garycoding/deco-assaying:latest
+docker pull ghcr.io/parkviewlab/deco-assaying:latest
 
 docker run --rm \
   -p 35832:35832 \
   -e PUBLIC_BASE_URL=http://localhost:35832 \
   -v deco-assaying-data:/data \
-  ghcr.io/garycoding/deco-assaying:latest
+  ghcr.io/parkviewlab/deco-assaying:latest
 ```
 
 Pin a specific version with a tag — `:0.1.5`, `:0.1`, or `:latest`. See
-the [container registry](https://github.com/garycoding/deco-assaying/pkgs/container/deco-assaying)
+the [container registry](https://github.com/parkviewlab/deco-assaying/pkgs/container/deco-assaying)
 for available tags.
 
 For a real deployment, copy [`docker-compose.yml`](docker-compose.yml),
@@ -232,7 +232,7 @@ Portainer rejects caps).
 ### From source (for development)
 
 ```bash
-git clone https://github.com/garycoding/deco-assaying.git
+git clone https://github.com/parkviewlab/deco-assaying.git
 cd deco-assaying
 uv sync
 uv run python -m deco_assaying
