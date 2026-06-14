@@ -33,7 +33,7 @@ jobs:
       # we explicitly designed this stack to avoid.
       - name: Check transitive licenses
         run: |
-          uv run pip-licenses \
+          uv run --with pip-licenses pip-licenses \
             --from=mixed \
             --fail-on="GPL;GPL v2;GPL v3;GNU General Public License;GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);AGPL;Affero;GNU Affero General Public License v3;GNU Affero General Public License v3 (AGPLv3);LGPL;GNU Lesser General Public License;GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v3 (LGPLv3);GNU Library or Lesser General Public License (LGPL);SSPL;Server Side Public License" \
             --order=license
