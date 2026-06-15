@@ -426,3 +426,6 @@ at your option. In SPDX terms: `MIT OR Apache-2.0`.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in this work by you shall be dual-licensed as above, without any
 additional terms or conditions. See [LICENSING.md](LICENSING.md).
+
+---
+<sub>© 2026 Gary Frattarola · Licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE) · part of [ParkviewLab](https://github.com/ParkviewLab)</sub>
