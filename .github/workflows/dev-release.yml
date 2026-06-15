@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Dev release
+
+# On-demand PRE-RELEASE publish from `develop` — a dev build to exercise a candidate
+# before the real release. Manually triggered (workflow_dispatch; run it with
+# `--ref develop`, or via `git dev-release`). Publishes a GHCR `:dev` image and the
+# `X.Y.Z.devN` version to TestPyPI. It creates NO `v*` tag, so the real release.yml
+# gate is untouched, and runs no changelog job. See the handbook's releases.md
+# ("Development versioning") + ci.md.
+#
+# Python/pyproject + TestPyPI variant; a Node repo would publish an npm dist-tag instead.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write       # GHCR push
+  id-token: write       # TestPyPI trusted publishing (OIDC)
+
+jobs:
+  # Gate: dev builds come from develop and must carry a dev version. Both publish
+  # jobs need it, so a bad invocation ships nothing.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify dev build from develop
+        id: v
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/develop" ]; then
+            echo "dev-release runs from develop only (got $GITHUB_REF)"; exit 1
+          fi
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          case "$VERSION" in
+            *.dev*|*-dev) ;;
+            *) echo "version '$VERSION' is not a dev version (expected X.Y.Z.devN) — open the dev cycle first"; exit 1 ;;
+          esac
+          echo "dev version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  docker:
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (dev tags — NOT latest)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=dev
+            type=raw,value=${{ needs.gate.outputs.version }}
+            type=sha,prefix=sha-
+
+      - name: Build and push (linux/amd64 + linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  testpypi:
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: testpypi   # matches the trusted-publisher config on TestPyPI
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
