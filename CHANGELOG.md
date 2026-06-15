@@ -29,6 +29,20 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-06-14
+
+### Highlights
+
+This release floors the starlette dependency at >=1.0.1 to pick up the fix for GHSA-86qp-5c8j-p5mr, a Host-header validation gap that could poison request.url.path and bypass path-based security checks — relevant to deco's path-based download API. Other changes are internal: adopting the latest handbook conventions for AI pointer files and adding an on-demand dev-release workflow.
+
+### Bug fixes
+
+- Upgrade starlette to >=1.0.1 (GHSA-86qp-5c8j-p5mr host-header validation) (#13) (05d4dde)
+
+### Docs
+
+- V0.3.0 [skip ci] (df816bb)
+
 ## [v0.3.0] - 2026-06-14
 
 ### Highlights
