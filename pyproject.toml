@@ -4,7 +4,7 @@
 
 [project]
 name = "deco-assaying"
-version = "0.3.1.dev1"
+version = "0.3.1"
 description = "MCP server that performs tree-sitter-based source code analysis."
 readme = "README.md"
 requires-python = ">=3.13"
