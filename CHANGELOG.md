@@ -29,6 +29,17 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.2] - 2026-06-24
+
+### Highlights
+
+This is a maintenance release with no user-facing code changes. The forward-looking wishlist has been moved from a root scratchpad into docs/future_features.md, and indirect dependencies (cryptography, pydantic-settings, python-multipart, pyjwt) have been bumped.
+
+### Docs
+
+- V0.3.1 [skip ci] (48b508f)
+- Add docs/future_features.md, remove humans_notes.md (#16) (cf6633b)
+
 ## [v0.3.1] - 2026-06-14
 
 ### Highlights
