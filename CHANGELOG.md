@@ -29,6 +29,16 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.3] - 2026-06-24
+
+### Highlights
+
+This is a maintenance release that updates the release workflow's action pins (checkout@v6, setup-uv@v8.1.0) to align with the handbook template and clear Node 24 deprecation warnings. There are no user-facing behavior changes.
+
+### Docs
+
+- V0.3.2 [skip ci] (c74446f)
+
 ## [v0.3.2] - 2026-06-24
 
 ### Highlights
