@@ -29,6 +29,16 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.4] - 2026-06-24
+
+### Highlights
+
+This is a maintenance release with no user-facing changes; GitHub Actions pins were bumped to their Node 24 floors to align with internal CI policy.
+
+### Docs
+
+- V0.3.3 [skip ci] (c589bc5)
+
 ## [v0.3.3] - 2026-06-24
 
 ### Highlights
