@@ -27,7 +27,6 @@ jobs:
         env:
           BASE: ${{ github.base_ref }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE"
           fail=0
           flag() { echo "::error::$1 changed in a feature PR — version bumps happen at release on main, not in feature work (handbook releases.md)."; fail=1; }
           if [ -f VERSION.txt ]; then
