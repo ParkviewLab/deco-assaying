@@ -382,7 +382,7 @@ the only on-disk cost is the output artifacts.
 
 ## Releasing
 
-Tag-driven via the `Release` workflow on push of a `v*` tag. Use the [`ParkviewLab/dev-tools`](https://github.com/ParkviewLab/dev-tools) helpers — they enforce the SSOT-tag-CI loop (`pyproject.toml` is the only place the version lives; the workflow's `Verify tag matches pyproject version` step would fail otherwise).
+Tag-driven via the `Release` workflow on push of a `v*` tag. Use the [`ParkviewLab/dev-tools`](https://github.com/ParkviewLab/dev-tools) helpers — they enforce the SSOT-tag-CI loop (`pyproject.toml` is the only place the version lives; the workflow's `Verify tag matches the version file` step would fail otherwise).
 
 ```sh
 git bump patch              # 0.1.5 → 0.1.6, committed
@@ -390,7 +390,7 @@ git release                 # annotated tag v0.1.6 from pyproject.toml
 git push --follow-tags      # CI fires
 ```
 
-The workflow runs four jobs: a **gate** (tag/SSOT + ancestor checks) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + [`git-cliff`](https://git-cliff.org/) categorized list), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
+The workflow runs four jobs: a **gate** (tag equals the pyproject version, which carries no dev marker; tag reachable from `origin/main`; version greater than the previous tag) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + [`git-cliff`](https://git-cliff.org/) categorized list), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
 
 Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md) and on the [GitHub Releases](https://github.com/ParkviewLab/deco-assaying/releases) page.
 
