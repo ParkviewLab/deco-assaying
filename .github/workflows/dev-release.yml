@@ -4,26 +4,23 @@
 
 name: Dev release
 
-# On-demand PRE-RELEASE publish from `develop` — a dev build to exercise a candidate
-# before the real release. Manually triggered (workflow_dispatch; run it with
-# `--ref develop`, or via `git dev-release`). Publishes a GHCR `:dev` image and the
-# `X.Y.Z.devN` version to TestPyPI. It creates NO `v*` tag, so the real release.yml
-# gate is untouched, and runs no changelog job. See the handbook's releases.md
-# ("Development versioning") + ci.md.
+# Assembled from the ParkviewLab handbook's dev-release parts, one for each of
+# this repository's publish targets that has a dev counterpart: the gate, then
+# the dev job of each of those targets. The recipe is in the handbook's ci.md.
 #
-# Python/pyproject + TestPyPI variant; a Node repo would publish an npm dist-tag instead.
+# A dev build is for local testing: a candidate CI builds before the release, not
+# a version for others to use. Manually triggered (workflow_dispatch; run it with
+# `--ref develop`, or via `git dev-release`). It creates NO `v*` tag, so the
+# release gate is untouched, and runs no changelog job. See the handbook's
+# releases.md ("What a release publishes", "Development versioning").
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write       # GHCR push
-  id-token: write       # TestPyPI trusted publishing (OIDC)
 
 jobs:
-  # Gate: dev builds come from develop and must carry a dev version. Both publish
-  # jobs need it, so a bad invocation ships nothing.
   gate:
     runs-on: ubuntu-latest
     outputs:
@@ -36,10 +33,22 @@ jobs:
           if [ "$GITHUB_REF" != "refs/heads/develop" ]; then
             echo "dev-release runs from develop only (got $GITHUB_REF)"; exit 1
           fi
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          # The repository's one version file, read as the release gate reads it.
+          if [ -f pyproject.toml ]; then
+            FILE=pyproject.toml
+            VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          elif [ -f package.json ]; then
+            FILE=package.json
+            VERSION=$(jq -r .version package.json)
+          elif [ -f VERSION.txt ]; then
+            FILE=VERSION.txt
+            VERSION=$(tr -d '[:space:]' < VERSION.txt)
+          else
+            echo "no version file: expected pyproject.toml, package.json or VERSION.txt"; exit 1
+          fi
           case "$VERSION" in
-            *.dev*|*-dev) ;;
-            *) echo "version '$VERSION' is not a dev version (expected X.Y.Z.devN) — open the dev cycle first"; exit 1 ;;
+            *.dev[0-9]*|*-dev[0-9]*) ;;
+            *) echo "::error::$FILE version '$VERSION' has no dev marker (expected X.Y.Z.devN or X.Y.Z-devN); the build would be indistinguishable from a release. Open a dev cycle first: git dev-release --open"; exit 1 ;;
           esac
           echo "dev version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -47,6 +56,9 @@ jobs:
   docker:
     needs: gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # GHCR push
     steps:
       - uses: actions/checkout@v6
 
@@ -88,6 +100,9 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: testpypi   # matches the trusted-publisher config on TestPyPI
+    permissions:
+      contents: read
+      id-token: write       # TestPyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v6
 
