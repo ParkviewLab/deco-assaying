@@ -4,34 +4,50 @@
 
 name: Release
 
+# Assembled from the ParkviewLab handbook's release parts, one for each of this
+# repository's publish targets: the gate, then the job of each target, then the
+# job that creates the GitHub Release. The recipe is in the handbook's ci.md.
+
 on:
   push:
     tags: ['v*']
 
 permissions:
   contents: read
-  packages: write       # GHCR push
-  id-token: write       # PyPI trusted publishing
 
 jobs:
-  # Pre-flight checks. Both publish jobs depend on this, so a failed gate
-  # prevents *any* artifact from shipping (no half-shipped state).
   gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0          # full history needed for the ancestor check below
+          fetch-depth: 0          # full history + all tags: the ancestor and monotonic checks below
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-
-      - name: Verify tag matches pyproject version
+      # The repository's one version file, read in `git bump`'s order.
+      - name: Verify tag matches the version file
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          PROJECT_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          if [ "$TAG" != "$PROJECT_VERSION" ]; then
-            echo "tag $TAG != pyproject $PROJECT_VERSION"
+          if [ -f pyproject.toml ]; then
+            FILE=pyproject.toml
+            VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          elif [ -f package.json ]; then
+            FILE=package.json
+            VERSION=$(jq -r .version package.json)
+          elif [ -f VERSION.txt ]; then
+            FILE=VERSION.txt
+            VERSION=$(tr -d '[:space:]' < VERSION.txt)
+          else
+            echo "no version file: expected pyproject.toml, package.json or VERSION.txt"
+            exit 1
+          fi
+          # A dev version is never released: the promotion carries develop's
+          # placeholder onto main, and `git bump release` drops it before the tag.
+          case "$VERSION" in
+            *.dev[0-9]*|*-dev[0-9]*)
+              echo "::error::$FILE version '$VERSION' is a dev version; finalize the cycle with git bump release before tagging"; exit 1 ;;
+          esac
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "tag $TAG != $FILE $VERSION"
             exit 1
           fi
 
@@ -44,9 +60,26 @@ jobs:
             exit 1
           fi
 
+      - name: Verify version is greater than the previous release tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          PREV=$(git tag --list 'v*' | grep -vxF "$TAG" | sort -V | tail -n 1 || true)
+          if [ -z "$PREV" ]; then
+            echo "no previous v* tag — first release, nothing to compare"
+            exit 0
+          fi
+          if [ "$(printf '%s\n' "$PREV" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
+            echo "tag $TAG is not greater than the previous release tag $PREV"
+            echo "versions only ever increase — bump past $PREV, then re-tag from main"
+            exit 1
+          fi
+
   docker:
     needs: gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # GHCR push
     steps:
       - uses: actions/checkout@v6
 
@@ -88,6 +121,9 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: pypi   # matches the trusted-publisher config on PyPI
+    permissions:
+      contents: read
+      id-token: write       # PyPI trusted publishing
     steps:
       - uses: actions/checkout@v6
 
@@ -102,7 +138,7 @@ jobs:
 
   # Generate the Highlights paragraph + categorized list, commit the new
   # CHANGELOG.md section back to main, and create the GitHub Release. Runs
-  # AFTER docker + pypi so the Release page points at artifacts that already
+  # AFTER the target jobs so the Release page points at artifacts that already
   # exist. Two-phase invocation of generate_changelog.py keeps the LLM call
   # to a single round-trip even though the commit-back happens onto a fresh
   # main checkout.
@@ -133,9 +169,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_REF: ${{ github.ref }}
         # `uv run --with anthropic` injects the SDK for just this invocation,
-        # without polluting pyproject.toml. Lets this workflow snippet be
-        # identical across every ParkviewLab repo regardless of whether
-        # `anthropic` is otherwise a project dep.
+        # without adding it to the project's dependencies. Lets this workflow
+        # snippet be identical across every ParkviewLab repo regardless of
+        # whether `anthropic` is otherwise a project dep.
         run: uv run --with anthropic python scripts/generate_changelog.py --mode=generate
 
       - name: Switch to fresh origin/main and insert into CHANGELOG.md
@@ -169,7 +205,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          shopt -s globstar nullglob
+          files=()                                  # regular files only — the
+          for f in artifacts/**/*; do               # per-OS dirs are not assets
+            [[ -f "$f" ]] && files+=("$f")
+          done
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file release-body.md \
-            --target main
+            --target main \
+            "${files[@]}"
