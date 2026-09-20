@@ -11,6 +11,6 @@ build/
 .claude/
 output/
 
-# Transient release artifact: scripts/generate_changelog.py writes this for
+# Transient release artifact: dev-tools' generate-changelog writes this for
 # `gh release create --notes-file`; it's regenerated every release, never committed.
 release-body.md
