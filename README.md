@@ -390,7 +390,7 @@ git release                 # annotated tag v0.1.6 from pyproject.toml
 git push --follow-tags      # CI fires
 ```
 
-The workflow runs four jobs: a **gate** (tag equals the pyproject version, which carries no dev marker; tag reachable from `origin/main`; version greater than the previous tag) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + [`git-cliff`](https://git-cliff.org/) categorized list), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
+The workflow runs four jobs: a **gate** (tag equals the pyproject version, which carries no dev marker; tag reachable from `origin/main`; version greater than the previous tag) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + categorized list written by dev-tools' `generate-changelog`), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
 
 Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md) and on the [GitHub Releases](https://github.com/ParkviewLab/deco-assaying/releases) page.
 
