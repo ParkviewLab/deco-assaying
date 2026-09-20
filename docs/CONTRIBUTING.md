@@ -24,8 +24,7 @@ This repo follows the ParkviewLab conventions. The essentials:
 ## Commit / PR-title convention (this is what the changelog reads)
 
 Because PRs are squash-merged, **the PR title becomes the commit subject**, and
-the changelog is generated from it (via [git-cliff](https://git-cliff.org/) +
-`cliff.toml`). Prefix every PR title with a [Conventional
+the changelog is generated from it (by dev-tools' `generate-changelog`, run by the release workflow at a pinned release). Prefix every PR title with a [Conventional
 Commit](https://www.conventionalcommits.org/) type:
 
 | Prefix | CHANGELOG section | Notes |
