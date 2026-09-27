@@ -20,6 +20,22 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.6] - 2026-09-27
+
+### Highlights
+
+This release updates bundled dependencies to close all outstanding security advisories, moving cryptography to 50.0.0 and anyio to 4.14.2, both of which reach the container image through the MCP server's transitive dependencies. The remaining work is release automation: the release and dev-release workflows are reassembled from the shared handbook parts, adding a gate that requires the version to exceed the previous release tag and to carry no dev marker, and changelog generation now uses the shared dev-tools script, so entries are grouped by the handbook's table with maintenance, breaking-change, revert and direct-commit sections instead of dropping unrecognised titles.
+
+### Bug fixes
+
+- Cryptography 50.0.0 and anyio 4.14.2, for open security advisories (#20)
+
+### Maintenance
+
+- Drop the shallow re-fetch from the version guard (#21)
+- Assemble the release workflows from the handbook's parts (#22)
+- Generate the changelog with dev-tools' shared script (#23)
+
 ## [v0.3.5] - 2026-07-17
 
 ### Highlights
