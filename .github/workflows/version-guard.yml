@@ -1,13 +1,30 @@
 # SPDX-FileCopyrightText: 2026 Gary Frattarola <garyf@parkviewlab.ai>
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
-
 name: Version guard
 
-# Feature PRs into `develop` must NOT change the version source-of-truth — the
-# bump happens at release, on `main` (see the handbook's releases.md / ci.md).
-# The release back-merge (main→develop) is a direct push, not a PR, so it is not
-# subject to this check.
+# The one required context `no-version-change`, in one job with two modes (see
+# the handbook's releases.md and ci.md).
+#
+# Ordinary mode, for every pull request into `develop` but a back-merge: a feature
+# PR must NOT change the version source-of-truth; the bump happens at release, on
+# `main`. It compares the project's own version with the base's: [project].version
+# in pyproject.toml and the top-level version in package.json, as back-merge-check
+# reads them; in Cargo.toml, which back-merge-check does not read,
+# [package].version (or [workspace.package].version, in a workspace); and
+# VERSION.txt whole. A version file the base branch does not yet have is new, not
+# bumped, and passes.
+#
+# Back-merge mode, for a pull request from this repository (never a fork) whose
+# branch is `back-merge-vX.Y.Z`: the release comes back into `develop` through that
+# pull request, which `git back-merge` opens, and dev-tools' `back-merge-check`,
+# checked out at a pinned release, verifies that it brings the released state of
+# `main` and, in a code repository, the open-cycle commit, and nothing else. The
+# mode is chosen inside the one job, since a second job skipped by `if:` would
+# report success; the branch name selects the mode and grants nothing.
+#
+# A repository that has not yet switched to merge commits ends its release with
+# the direct back-merge, which this check does not see.
 
 on:
   pull_request:
@@ -22,26 +39,98 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 0        # every branch and tag in full; nothing re-fetches develop shallow
+      - name: Select the mode
+        id: mode
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          mode=ordinary
+          case "$HEAD_REF" in back-merge-v*) [ "$SAME_REPO" = true ] && mode=back-merge ;; esac
+          echo "mode: $mode"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
       - name: Version SoT must be unchanged
+        if: steps.mode.outputs.mode == 'ordinary'
         env:
           BASE: ${{ github.base_ref }}
         run: |
           fail=0
           flag() { echo "::error::$1 changed in a feature PR — version bumps happen at release on main, not in feature work (handbook releases.md)."; fail=1; }
+          new_file() { echo "$1 is new in this PR (origin/$BASE has none): a first introduction is not a bump."; }
+          # The project's own version in a TOML file: [project].version in
+          # pyproject.toml; in Cargo.toml [package].version, or
+          # [workspace.package].version where the crate inherits it or the manifest
+          # is a workspace's. Prints nothing where there is no static version.
+          toml_reader=$(mktemp)
+          cat > "$toml_reader" <<'PY'
+          import sys, tomllib
+          def at(table, *keys):
+              for key in keys:
+                  table = table.get(key) if isinstance(table, dict) else None
+              return table if isinstance(table, str) else None
+          try:
+              with open(sys.argv[2], "rb") as f:
+                  data = tomllib.load(f)
+          except tomllib.TOMLDecodeError as error:
+              sys.exit(f"{sys.argv[1]}: {error}")
+          if sys.argv[1] == "pyproject.toml":
+              version = at(data, "project", "version")
+          else:
+              version = at(data, "package", "version") or at(data, "workspace", "package", "version")
+          print(version or "")
+          PY
+          # $1 = the version file's name, $2 = the copy to read; fails where it cannot be parsed
+          project_version() {
+            case "$1" in
+              package.json) jq -r 'if (.version | type) == "string" then .version else empty end' "$2" ;;
+              *) python3 "$toml_reader" "$1" "$2" ;;
+            esac
+          }
+          # One version file against origin/$BASE's, whose copy git show writes to a
+          # temporary file: the base is never checked out. $1 = the file, $2 = its
+          # name in the error.
+          compare() {
+            local base_copy new old
+            [ -f "$1" ] || return 0
+            if ! git cat-file -e "origin/$BASE:$1" 2>/dev/null; then new_file "$1"; return 0; fi
+            base_copy=$(mktemp)
+            git show "origin/$BASE:$1" > "$base_copy"
+            if ! new=$(project_version "$1" "$1"); then
+              echo "::error::$1 cannot be parsed, so its version cannot be compared with origin/$BASE's."; fail=1; return 0
+            fi
+            if ! old=$(project_version "$1" "$base_copy"); then
+              echo "::error::origin/$BASE's $1 cannot be parsed, so the version cannot be compared."; fail=1; return 0
+            fi
+            if [ -z "$new" ] && [ -z "$old" ]; then
+              echo "$1 holds no static version of the project's own, here or at origin/$BASE: nothing to guard."; return 0
+            fi
+            [ "$new" = "$old" ] || flag "$2"
+          }
           if [ -f VERSION.txt ]; then
-            old=$(git show "origin/$BASE:VERSION.txt" 2>/dev/null || echo "")
-            [ "$(cat VERSION.txt)" = "$old" ] || flag VERSION.txt
+            if git cat-file -e "origin/$BASE:VERSION.txt" 2>/dev/null; then
+              old=$(git show "origin/$BASE:VERSION.txt")
+              [ "$(cat VERSION.txt)" = "$old" ] || flag VERSION.txt
+            else
+              new_file VERSION.txt
+            fi
           fi
-          if [ -f pyproject.toml ]; then
-            new=$(grep -E '^version *=' pyproject.toml | head -1 || true)
-            old=$(git show "origin/$BASE:pyproject.toml" 2>/dev/null | grep -E '^version *=' | head -1 || true)
-            [ "$new" = "$old" ] || flag "pyproject.toml [project].version"
-          fi
-          if [ -f package.json ]; then
-            new=$(grep -E '"version"' package.json | head -1 || true)
-            old=$(git show "origin/$BASE:package.json" 2>/dev/null | grep -E '"version"' | head -1 || true)
-            [ "$new" = "$old" ] || flag "package.json version"
-          fi
+          compare pyproject.toml "pyproject.toml [project].version"
+          compare package.json "package.json version"
+          compare Cargo.toml "Cargo.toml version"
           if [ "$fail" = 0 ]; then echo "version unchanged ✓"; fi
           exit $fail
+      - uses: actions/checkout@v6
+        if: steps.mode.outputs.mode == 'back-merge'
+        with:
+          repository: ParkviewLab/dev-tools
+          ref: d774e44c5fb289277481d28592456879cf8d01ed # v1.5.1
+          path: dev-tools
+      - name: The back-merge brings the release and nothing else
+        if: steps.mode.outputs.mode == 'back-merge'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        # The base is the synthetic merge's first parent, the develop tip this run
+        # was tested against; the head is the pull request's head, never HEAD.
+        run: dev-tools/scripts/back-merge-check "$(git rev-parse HEAD^1)" "$HEAD_SHA" origin/main "${HEAD_REF#back-merge-}"
