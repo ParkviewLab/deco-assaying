@@ -159,7 +159,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: ParkviewLab/dev-tools
-          ref: 6337d278786b5ba9e0ed9d90e0a80bdd221b1e3e # v1.2.0
+          ref: d774e44c5fb289277481d28592456879cf8d01ed # v1.5.1
           path: dev-tools
 
       - name: Install uv
