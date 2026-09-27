@@ -20,6 +20,16 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.7] - 2026-09-27
+
+### Highlights
+
+This release is internal maintenance only: the repository moves from squash merges to merge commits and adopts the back-merge pull request produced by `git back-merge`, with the version-guard and release workflows re-assembled from the handbook templates and the dev-tools pins updated. Contributor documentation and the generated agent files were re-synced to match. There are no changes to the MCP server or its code analysis behaviour.
+
+### Maintenance
+
+- Merge commits and the checked back-merge pull request (#24)
+
 ## [v0.3.6] - 2026-09-27
 
 ### Highlights
