@@ -11,6 +11,5 @@ committed.
 
 - Identify well-known algorithms (e.g. A*, quicksort) and recognize and note
   when well-known design patterns are being used.
-- Support GitLab repositories.
 - Support enterprise GitHub and enterprise GitLab repositories.
 - Support Gitea repositories.
