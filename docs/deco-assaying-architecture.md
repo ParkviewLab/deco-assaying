@@ -21,8 +21,10 @@ structured analysis of every source file:
 
 Two surfaces:
 
-- **MCP tools** at `POST /sse` — `analyze_file` (inline content) and
-  `index_repo` (whole-repo job).
+- **MCP tools** at `POST /sse` — 16 tools and 2 prompts: `analyze_file`
+  (inline content), `index_repo` (whole-repo job), and the readers of a
+  job's results. The README lists them under "MCP tools" and "MCP
+  prompts".
 - **HTTP** for ops + artifact retrieval — `/health`, `/admin/*`,
   `/outputs/{job_id}/...`.
 
@@ -34,7 +36,7 @@ One Python process. Three concurrency layers:
 |---|---|
 | asyncio (FastAPI/uvicorn) | HTTP request handling and the MCP transport. |
 | One thread per indexing job | Owns the job's filesystem outputs and the `log.jsonl` writer. Spawned by `jobs.start_index_repo`. |
-| `ProcessPoolExecutor` per job | Per-file analysis. Spawned (not forked) so tree-sitter native state is clean per worker. Worker count = CPU count. |
+| `ProcessPoolExecutor` per job | Per-file analysis. Processes use the platform's multiprocessing default (fork on Linux, spawn on macOS). Worker count = CPU count. |
 
 The job table (`jobs._jobs`) is an `OrderedDict` guarded by
 `threading.Lock`. Bounded at `JOB_HISTORY_MAX`; only terminal jobs are
@@ -45,10 +47,14 @@ evicted, so an active job is never silently dropped.
 ### Core orchestration
 
 - **`__main__`** — `python -m deco_assaying` entry point. Configures
-  logging, then runs uvicorn against `app.app`.
+  logging, then runs uvicorn against `app.app`, or serves MCP over
+  stdio with `--transport stdio`.
 - **`app`** — FastAPI app construction, CORS, MCP `/sse` mount.
 - **`routes`** — `APIRouter` + the MCP `Server` + every tool handler.
   Lifespan starts the MCP session manager and the retention sweeper.
+- **`prompts`** — the two MCP prompts (`analyze_repo`,
+  `explore_finished_job`): workflow templates the server ships
+  alongside its tools.
 - **`config`** — env-var-driven constants. Pure leaf module.
 - **`jobs`** — the job table and `_run_job` orchestrator. Pick a fetch
   strategy (local / single-clone / streaming), walk, dispatch to the
@@ -75,9 +81,9 @@ evicted, so an active job is never silently dropped.
   Detects the language, picks an analyzer, invokes tree-sitter, runs
   the analyzer, and packages the result.
 - **`languages`** — extension + shebang detection. Cached grammar
-  loader (`get_parser_for_language`).
+  loader (`get_parser`).
 - **`analyzers/*`** — per-language analyzers. All conform to a single
-  `analyze(node, source_text)` signature returning the documented
+  `analyze(source_bytes, root)` signature returning the documented
   per-file shape.
 - **`chunks`** — cAST-style AST-aware chunking. Splits on syntactic
   boundaries; tags each chunk with the qualified name of its enclosing
@@ -87,7 +93,7 @@ evicted, so an active job is never silently dropped.
 - **`detectors`** — `is_test`, `is_generated`, `is_config` heuristics.
 - **`manifest`** — repo-level rollup writers.
 
-### Phase 2 surfaces
+### Download API and retention
 
 - **`outputs`** — helpers for the download API: path-traversal-safe
   resolution, directory listing, glob expansion, streaming-ZIP
@@ -125,7 +131,7 @@ _run_job (background thread)
     │     append log.jsonl event
     │     update progress counters
     │
-    │ on finish: manifest.write(...) → manifest.json + rollups
+    │ on finish: manifest.write(...) → rollups, manifest.json, analysis_index.json
     └─► status=done
 ```
 
@@ -140,9 +146,11 @@ Every job lands at `OUTPUT_ROOT/{job_id}/`:
 
 ```
 {job_id}/
-  manifest.json        # written last; signals completion
+  manifest.json        # repo-level summary
+  analysis_index.json  # written last; signals completion
   tree.json            # every path the walker observed (analyzed + skipped)
-  symbols.json         # global qualified_name → (file, span) index
+  all_symbols.json     # global qualified_name → (file, span) index
+  top_level_symbols.json  # the module-level subset of all_symbols.json
   languages.json       # per-language file counts + bytes
   errors.json          # parse errors + skipped files
   log.jsonl            # append-only event stream
@@ -153,9 +161,10 @@ Every job lands at `OUTPUT_ROOT/{job_id}/`:
                        # streaming mode keeps it as scratch and ends empty)
 ```
 
-All file writes are atomic (`.tmp` then rename). `manifest.json` lands
-last so a file-watching consumer can use its existence as the "done"
-signal without polling.
+All file writes are atomic (`.tmp` then rename). `analysis_index.json`
+lands last, after `manifest.json` and every other rollup, so a
+file-watching consumer can use its existence as the "done" signal
+without polling.
 
 ## HTTP surface
 
@@ -189,16 +198,16 @@ signal without polling.
 - **Active-job protection** — `jobs.is_active` gates both
   `DELETE /outputs/{id}` (returns 409) and the retention sweeper
   (skips active jobs).
-- **No auth in v2** — relies on network isolation. Bearer-token
-  middleware is straightforward to add later.
+- **No authentication** — the server relies on network isolation.
+  Bearer-token middleware is straightforward to add later.
 
 ## Configuration
 
 See the env-var table in [README.md](../README.md#configuration). Two
 notable knobs:
 
-- `OUTPUT_ROOT` is the **only** place jobs write. The MCP tool no
-  longer accepts an output path; the server allocates `{job_id}/`.
+- `OUTPUT_ROOT` is the **only** place jobs write. `index_repo`
+  accepts no output path; the server allocates `{job_id}/`.
 - `OUTPUT_EXPIRY_DAYS=0` disables the retention sweeper for ops who
   want manual control via `DELETE /outputs/{id}`.
 
