@@ -20,6 +20,20 @@ section here, and uses the same content as the GitHub Release body.
 
 ## [Unreleased]
 
+## [v0.3.8] - 2026-09-30
+
+### Highlights
+
+This release caps the `mcp` dependency below 2.0, since mcp 2.x removes the low-level `Server` decorators the handlers rely on and a fresh install would otherwise fail at import, and bumps PyJWT to 2.15.1 in the lockfile to clear ten open advisories including one critical. The documentation has been checked against the code and corrected throughout: the environment-variable table now drops two variables that did nothing and adds `DEFAULT_MAX_PARTIAL_CLONE_BYTES`, with further fixes to image tags, GitHub and GitLab source fetching, the release procedure, output files and the completion sentinel, `index_repo`'s arguments, `--transport stdio`, and the contributing and architecture notes. The remaining change is internal alignment with handbook v2.1.0, including a CI adjustment to run the fast test tier.
+
+### Bug fixes
+
+- Keep mcp below 2, clear the PyJWT advisories, and correct the documents (#27)
+
+### Maintenance
+
+- Align with handbook v2.1.0 (#26)
+
 ## [v0.3.7] - 2026-09-27
 
 ### Highlights
