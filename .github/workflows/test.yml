@@ -34,5 +34,5 @@ jobs:
       - name: Type check
         run: uv run ty check          # ty must be a dev dependency
 
-      - name: Tests (excluding network + docling marker)
-        run: uv run pytest -m "not network and not docling" -q
+      - name: Tests (excluding the network, integration and docling markers)
+        run: uv run pytest -m "not network and not integration and not docling" -q

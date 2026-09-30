@@ -42,6 +42,8 @@ it's up:
 curl http://127.0.0.1:35832/health
 ```
 
+To serve MCP over stdio instead of HTTP, run `deco-assaying --transport stdio` (`--transport {http,stdio}`; the default is `http`).
+
 ---
 
 ### 1. One-off — `uvx`
@@ -51,7 +53,7 @@ Nothing persists between runs.
 
 ```bash
 uvx deco-assaying                       # latest release
-uvx deco-assaying@0.1.5                 # pin a specific version
+uvx deco-assaying@0.3.7                 # pin a specific version
 
 # With env vars (e.g. private-repo token, custom output dir):
 PUBLIC_BASE_URL=http://localhost:35832 \
@@ -211,7 +213,7 @@ docker run --rm \
   ghcr.io/parkviewlab/deco-assaying:latest
 ```
 
-Pin a specific version with a tag — `:0.1.5`, `:0.1`, or `:latest`. See
+Pin a specific version with a tag — `:0.3.7`, `:0.3`, or `:latest`. See
 the [container registry](https://github.com/parkviewlab/deco-assaying/pkgs/container/deco-assaying)
 for available tags.
 
@@ -263,7 +265,7 @@ schemas explain the recommended order of use. Highlights:
 - `analyze_file(content, filename?, language?, ...)` — analyze ONE file
   whose source you already have, inline. Don't use this to analyze a
   whole repo.
-- `index_repo(source, options?)` — start an async indexing job. Returns
+- `index_repo(source, git_ref?, max_file_bytes?, max_partial_clone_bytes?, ...)` — start an async indexing job. Returns
   `{job_id}`. `source` can be a local directory, a GitHub URL, or a
   GitLab URL (including nested groups).
 - `get_job_status(job_id)` — poll until `state == "done"`.
@@ -329,17 +331,28 @@ Path traversal (`..`, absolute paths, escape via symlink) is rejected.
 
 ## Resource requirements
 
-When `index_repo` runs against a GitHub URL, the server uses a partial
-clone with bin-packed batched fetching. That gives a small, predictable
-disk footprint regardless of how large the source repo is:
+When `index_repo` runs against a GitHub or GitLab URL, the server takes
+one of two exclusive paths, chosen after a provider pre-flight (see
+*Network* below) that lists every blob with its size. The threshold
+`max_partial_clone_bytes` is a top-level argument of `index_repo`:
 
-- **Source-side scratch space: ~100 MB peak** in `output_path/.source/`
-  during analysis. The server fetches each batch of source files
-  (totaling ≤ `max_partial_clone_bytes`, default 100 MB), analyzes
-  them, deletes them from the working tree, then fetches the next
-  batch. Even on a multi-GB monorepo, peak local-disk used for source
-  content stays at ~100 MB. Tunable via the `max_partial_clone_bytes`
-  option on `index_repo`.
+- **Streaming, no clone.** If the pre-flight succeeds and the planned
+  source exceeds `max_partial_clone_bytes` (default 100 MB), nothing is
+  cloned. The server packs the files into batches totaling at most
+  `max_partial_clone_bytes`, downloads each batch through the
+  provider's raw URL (16 threads) into `output_path/.source/`, analyzes
+  it, deletes the batch's files, then fetches the next. Peak
+  source-side scratch space stays at ~100 MB however large the repo is.
+
+- **Single partial clone.** Otherwise the server runs one
+  `git clone --depth=1 --filter=blob:limit=<max_file_bytes>` (without
+  the filter under `eager_clone`) into `output_path/.source/`, and the
+  clone stays there until the job directory is purged. The ~100 MB
+  bound holds only when the pre-flight succeeds: if it fails (for
+  example on GitHub's unauthenticated limit of 60 requests an hour),
+  the job clones every blob under `max_file_bytes`.
+
+The other costs are the same on both paths:
 
 - **Output artifacts: roughly 1-2× the analyzed-source size.** Each
   analyzed file produces a JSON artifact under `output_path/files/`
@@ -348,17 +361,18 @@ disk footprint regardless of how large the source repo is:
   the largest *durable* footprint. The retention sweeper auto-purges
   job dirs older than `OUTPUT_EXPIRY_DAYS`.
 
-- **Memory: modest.** A `ProcessPoolExecutor` runs roughly
-  `2 × CPU count` workers, each holding one file's bytes plus its
-  tree-sitter parse tree in memory. Source files are capped at
-  `max_file_bytes` (default 2 MB), so worst case is ~16-32 MB of
-  resident source + parse trees on a typical 8-core box.
+- **Memory: modest.** A `ProcessPoolExecutor` runs one worker per CPU,
+  each holding one file's bytes plus its tree-sitter parse tree in
+  memory. Source files are capped at `max_file_bytes` (default 2 MB),
+  so worst case is ~16 MB of resident source + parse trees on an
+  8-core box.
 
-- **Network:** one provider-API pre-flight to plan the batches (GitHub
-  Trees REST or GitLab REST tree + GraphQL; free for public repos, set
-  `GITHUB_TOKEN` / `GITLAB_TOKEN` for higher quotas and private-repo
-  access), plus one `git fetch-pack` round-trip per batch. For a
-  typical sub-100 MB repo that's two HTTP hits total.
+- **Network:** one provider-API pre-flight to choose the path and, when
+  streaming, to plan the batches (GitHub Trees REST or GitLab REST
+  tree + GraphQL; free for public repos, set `GITHUB_TOKEN` /
+  `GITLAB_TOKEN` for higher quotas and private-repo access). Streaming
+  then makes one raw-URL request per file; the single-clone path makes
+  one `git clone`.
 
 For local-path sources nothing is fetched and nothing is cloned —
 the only on-disk cost is the output artifacts.
@@ -373,8 +387,7 @@ the only on-disk cost is the output artifacts.
 | `OUTPUT_EXPIRY_DAYS` | `7` | `7` | Auto-purge job dirs older than this. `0` disables. |
 | `PUBLIC_BASE_URL` | `http://localhost:${PORT}` ¹ | `http://localhost:${PORT}` ¹ | Externally-reachable URL of this daemon, used to build absolute download URLs in `analysis_index.json`. Override in any deployment where clients reach the server at a different address. |
 | `JOB_HISTORY_MAX` | `100` | `100` | In-memory job-table cap. |
-| `DEFAULT_MAX_FILE_BYTES` | `2097152` | `2097152` | Default per-file size cap. |
-| `DEFAULT_CHUNK_MAX_TOKENS` | `800` | `800` | Default chunk size for cAST chunking. |
+| `DEFAULT_MAX_PARTIAL_CLONE_BYTES` | `104857600` | `104857600` | Default `max_partial_clone_bytes`: above this planned source size, a GitHub or GitLab job streams in batches of at most this many bytes instead of cloning. |
 | `GITHUB_TOKEN` | unset | unset | Optional. Raises GitHub Trees API quota from 60 to 5000 req/hr and unlocks private repos. |
 | `GITLAB_TOKEN` | unset | unset | Optional. GitLab API auth + private-repo access. |
 
@@ -385,12 +398,19 @@ the only on-disk cost is the output artifacts.
 Tag-driven via the `Release` workflow on push of a `v*` tag. Use the [`ParkviewLab/dev-tools`](https://github.com/ParkviewLab/dev-tools) helpers — they enforce the SSOT-tag-CI loop (`pyproject.toml` is the only place the version lives; the workflow's `Verify tag matches the version file` step would fail otherwise).
 
 ```sh
-git bump patch              # 0.1.5 → 0.1.6, committed
-git release                 # annotated tag v0.1.6 from pyproject.toml
-git push --follow-tags      # CI fires
+# in the deco-assaying-main worktree
+git pull --ff-only                        # sync main
+git -C ../deco-assaying-develop pull --ff-only   # sync develop too
+git merge --no-ff develop                 # promote develop to main
+git bump <patch|minor|major>              # bump the version, committed as "release v<new>"
+git release                               # annotated tag v<new> from pyproject.toml
+git push --follow-tags                    # CI fires
+git back-merge                            # the release's last step
 ```
 
-The workflow runs four jobs: a **gate** (tag equals the pyproject version, which carries no dev marker; tag reachable from `origin/main`; version greater than the previous tag) gates the two publish jobs — **docker** (multi-arch GHCR push, `vX.Y.Z` / `vX.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + categorized list written by dev-tools' `generate-changelog`), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
+The steps, and the reasons for each, are in the ParkviewLab handbook's `releases.md` (see "Cutting a release" and "The release's last step").
+
+The workflow runs four jobs: a **gate** (tag equals the pyproject version, which carries no dev marker; tag reachable from `origin/main`; version greater than the previous tag) gates the two publish jobs — **docker** (multi-arch GHCR push, `X.Y.Z` / `X.Y` / `latest` tags) and **pypi** (wheel + sdist via trusted publishing). After both publish, a **changelog** job generates the new `CHANGELOG.md` section (LLM-written "Highlights" header + categorized list written by dev-tools' `generate-changelog`), commits it back to `main`, and creates the GitHub Release with the same content as its body. ~3-5 minutes end-to-end.
 
 Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md) and on the [GitHub Releases](https://github.com/ParkviewLab/deco-assaying/releases) page.
 

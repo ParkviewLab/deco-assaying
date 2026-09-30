@@ -13,11 +13,12 @@ space so future-us can pick it up cold.
 
 GitHub's repo settings already give us the **reactive** side:
 
-- **Dependabot security updates** can be flipped on at
-  <https://github.com/parkviewlab/deco-assaying/settings/security_analysis>.
+- **Dependabot security updates** are on (`automated-security-fixes` is
+  enabled; the setting is at
+  <https://github.com/parkviewlab/deco-assaying/settings/security_analysis>).
   When a dep we use lands in the GitHub Advisory Database with a CVE,
   Dependabot opens a PR bumping it to a fixed version.
-- **Secret scanning + push protection** are on (public-repo defaults).
+- **Secret scanning and push protection** are disabled.
 
 The piece *not* yet wired up is **proactive version updates** — auto-PRs
 that bump deps to new versions on a schedule whether or not there's a
@@ -59,20 +60,12 @@ updates:
 Add a third `package-ecosystem: pip` block to the YAML above.
 
 - **Pro:** Python deps get proactive bumps too.
-- **Con:** Dependabot's `pip` ecosystem reads `pyproject.toml` but
-  **doesn't natively understand `uv.lock`** as of today (May 2026).
-  It'll edit `pyproject.toml` and let CI fail because the lock is stale,
-  or it'll succeed-but-leave-the-lock-untouched and merging will
-  produce a mismatched state. Workarounds:
-  - Manually run `uv lock` locally on each Dependabot PR before
-    merging. Tedious but works.
-  - Add a small post-Dependabot GitHub Action that runs `uv lock` and
-    pushes the regenerated lock back to the PR branch. Works
-    reliably; couple dozen lines of YAML. Examples in the wild
-    under search "dependabot uv.lock github actions."
-  - Wait for first-class `uv` support in Dependabot. Open issue:
-    <https://github.com/dependabot/dependabot-core/issues/10478>
-    (last checked early 2026; no ETA).
+- **Con:** the drawback recorded here earlier, that Dependabot cannot
+  update `uv.lock`, no longer holds. The issue that tracked it,
+  <https://github.com/dependabot/dependabot-core/issues/10478>, was
+  closed as completed on 2025-04-12. Which `package-ecosystem` entry
+  (`pip` or a separate `uv` one) is the right configuration for
+  `uv.lock` has not been checked.
 
 ### Option 3: Renovate for everything
 
@@ -99,10 +92,11 @@ project; falls behind on a busy one.
 1. **First pass:** Option 1. Cheap, immediate value, zero risk.
    If we never get further, this still keeps Actions + Docker fresh.
 2. **Second pass, when Python deps start drifting:** Option 3
-   (Renovate). The native `uv.lock` handling is the deciding factor;
-   not worth the post-Dependabot Action workaround dance.
-3. **Skip Option 2** entirely. The lockfile-mismatch failure mode is
-   a paper cut every time it happens.
+   (Renovate). Its native `uv.lock` handling was the deciding factor;
+   Dependabot now supports `uv.lock` as well (see Option 2), so that
+   no longer distinguishes the two.
+3. **Skip Option 2** entirely. The reason given for this, the
+   lockfile-mismatch failure mode, no longer holds (see Option 2).
 
 ## How to act
 
