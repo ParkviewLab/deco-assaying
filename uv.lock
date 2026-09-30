@@ -199,7 +199,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27,<2" },
     { name = "pathspec" },
     { name = "pydantic" },
     { name = "starlette", specifier = ">=1.0.1" },
